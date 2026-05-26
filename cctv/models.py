@@ -8,6 +8,7 @@ class Camera(models.Model):
         ('Online', 'Online'),
         ('Offline', 'Offline'),
         ('Maintenance', 'Maintenance'),
+        ('Scrap', 'Scrap'),
     ]
     CAMPUS_ZONE_CHOICES = [
         ('INSIDE', 'Inside Campus'),
@@ -50,6 +51,7 @@ class NVR(models.Model):
         ('Online', 'Online'),
         ('Offline', 'Offline'),
         ('Maintenance', 'Maintenance'),
+        ('Scrap', 'Scrap'),
     ]
     CAMPUS_ZONE_CHOICES = [
         ('INSIDE', 'Inside Campus'),
@@ -61,6 +63,7 @@ class NVR(models.Model):
     nvrName = models.CharField(max_length=255)
     location = models.CharField(max_length=255)
     brand = models.CharField(max_length=255, blank=True, null=True)
+    model = models.CharField(max_length=100, blank=True, null=True)
     hardDisk = models.CharField(max_length=100, blank=True, null=True)
     channel = models.CharField(max_length=50, blank=True, null=True)
     serialNumber = models.CharField(max_length=100, blank=True, null=True, unique=True)
@@ -84,6 +87,7 @@ class Biometric(models.Model):
         ('Online', 'Online'),
         ('Offline', 'Offline'),
         ('Maintenance', 'Maintenance'),
+        ('Scrap', 'Scrap'),
     ]
     CAMPUS_ZONE_CHOICES = [
         ('INSIDE', 'Inside Campus'),
@@ -97,6 +101,7 @@ class Biometric(models.Model):
     ipAddress = models.CharField(max_length=45, blank=True, null=True)
     serverIp = models.CharField(max_length=45, blank=True, null=True)
     serialNumber = models.CharField(max_length=100, blank=True, null=True, unique=True)
+    macAddress = models.CharField(max_length=255, blank=True, null=True)
     syncStatus = models.CharField(max_length=100, default='In Sync')
     lastCheckIn = models.CharField(max_length=100, blank=True, null=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Online')
@@ -119,6 +124,7 @@ class Barrier(models.Model):
         ('Online', 'Online'),
         ('Offline', 'Offline'),
         ('Maintenance', 'Maintenance'),
+        ('Scrap', 'Scrap'),
     ]
     CAMPUS_ZONE_CHOICES = [
         ('INSIDE', 'Inside Campus'),
@@ -151,6 +157,7 @@ class NetworkSwitch(models.Model):
         ('Online', 'Online'),
         ('Offline', 'Offline'),
         ('Maintenance', 'Maintenance'),
+        ('Scrap', 'Scrap'),
     ]
     CAMPUS_ZONE_CHOICES = [
         ('INSIDE', 'Inside Campus'),
@@ -289,3 +296,62 @@ class MasterLocation(models.Model):
 
     def __str__(self):
         return f"{self.collegeName} | {self.block} | {self.floor} | {self.room} ({self.brand})"
+
+class Rack(models.Model):
+    STATUS_CHOICES = [
+        ('Online', 'Online'),
+        ('Offline', 'Offline'),
+        ('Maintenance', 'Maintenance'),
+        ('Scrap', 'Scrap'),
+    ]
+    CAMPUS_ZONE_CHOICES = [
+        ('INSIDE', 'Inside Campus'),
+        ('OUTSIDE', 'Outside Campus'),
+    ]
+
+    name = models.CharField(max_length=255)
+    location = models.CharField(max_length=255)
+    brand = models.CharField(max_length=100, blank=True, null=True)
+    model = models.CharField(max_length=100, blank=True, null=True)
+    uSpace = models.CharField(max_length=50, blank=True, null=True)
+    serialNumber = models.CharField(max_length=100, blank=True, null=True, unique=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Online')
+    createdAt = models.DateTimeField(auto_now_add=True)
+    updatedAt = models.DateTimeField(auto_now=True)
+    
+    # Location Intelligence
+    collegeName = models.CharField(max_length=255, blank=True, null=True)
+    block = models.CharField(max_length=255, blank=True, null=True)
+    floor = models.CharField(max_length=255, blank=True, null=True)
+    room = models.CharField(max_length=255, blank=True, null=True)
+    campusZone = models.CharField(max_length=10, choices=CAMPUS_ZONE_CHOICES, default='INSIDE')
+    remarks = models.TextField(blank=True, null=True)
+
+    def __str__(self):
+        return self.name
+
+class RackRemark(models.Model):
+    rack = models.ForeignKey(Rack, on_delete=models.CASCADE, related_name='message_history')
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    remark = models.TextField()
+    device_status = models.CharField(max_length=20, blank=True, null=True)
+    date = models.DateField(auto_now_add=True)
+    time = models.TimeField(auto_now_add=True)
+    createdAt = models.DateTimeField(auto_now_add=True)
+
+class RackRelocation(models.Model):
+    rack = models.ForeignKey(Rack, on_delete=models.CASCADE, related_name='relocations')
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    old_location = models.CharField(max_length=255)
+    new_location = models.CharField(max_length=255)
+    remark = models.TextField(blank=True, null=True)
+    createdAt = models.DateTimeField(auto_now_add=True)
+
+class Occupation(models.Model):
+    name = models.CharField(max_length=255, unique=True)
+    occupation_type = models.CharField(max_length=50)
+    merged_from = models.JSONField(default=list, blank=True)
+    createdAt = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.name} ({self.occupation_type})"

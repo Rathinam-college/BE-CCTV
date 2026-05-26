@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Ticket, Project, TicketRemark, MaintenanceStaff
+from .models import Ticket, Project, TicketRemark, MaintenanceStaff, ProjectDocument, TicketDocument
 from users.serializers import UserSerializer
 from cctv.serializers import CameraSerializer
 
@@ -8,9 +8,20 @@ class MaintenanceStaffSerializer(serializers.ModelSerializer):
         model = MaintenanceStaff
         fields = '__all__'
 
+class ProjectDocumentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProjectDocument
+        fields = '__all__'
+
+class TicketDocumentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TicketDocument
+        fields = '__all__'
+
 class ProjectSerializer(serializers.ModelSerializer):
     _id = serializers.IntegerField(source='id', read_only=True)
     ticket_count = serializers.SerializerMethodField()
+    documents = ProjectDocumentSerializer(many=True, read_only=True)
 
     class Meta:
         model = Project
@@ -27,6 +38,7 @@ class TicketRemarkSerializer(serializers.ModelSerializer):
 
 class TicketSerializer(serializers.ModelSerializer):
     _id = serializers.IntegerField(source='id', read_only=True)
+    documents = TicketDocumentSerializer(many=True, read_only=True)
     
     class Meta:
         model = Ticket

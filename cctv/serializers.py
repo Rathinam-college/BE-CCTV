@@ -3,7 +3,8 @@ from .models import (
     Camera, NVR, Biometric, Barrier, NetworkSwitch, ActivityLog, 
     CameraRemark, NVRRemark, BiometricRemark, SwitchRemark,
     CameraRelocation, NVRRelocation, BiometricRelocation, SwitchRelocation,
-    GlobalSiteConfig, MasterLocation
+    GlobalSiteConfig, MasterLocation,
+    Rack, RackRemark, RackRelocation, Occupation
 )
 
 class CameraRelocationSerializer(serializers.ModelSerializer):
@@ -92,6 +93,26 @@ class NetworkSwitchSerializer(serializers.ModelSerializer):
         model = NetworkSwitch
         fields = '__all__'
 
+class RackRelocationSerializer(serializers.ModelSerializer):
+    userName = serializers.CharField(source='user.name', read_only=True)
+    class Meta:
+        model = RackRelocation
+        fields = ['id', 'old_location', 'new_location', 'remark', 'userName', 'createdAt']
+
+class RackRemarkSerializer(serializers.ModelSerializer):
+    userName = serializers.CharField(source='user.name', read_only=True)
+    class Meta:
+        model = RackRemark
+        fields = ['id', 'remark', 'device_status', 'date', 'time', 'userName', 'createdAt']
+
+class RackSerializer(serializers.ModelSerializer):
+    _id = serializers.IntegerField(source='id', read_only=True)
+    message_history = RackRemarkSerializer(many=True, read_only=True)
+    relocations = RackRelocationSerializer(many=True, read_only=True)
+    class Meta:
+        model = Rack
+        fields = '__all__'
+
 class ActivityLogSerializer(serializers.ModelSerializer):
     userEmail = serializers.EmailField(source='user.email', read_only=True)
     userName = serializers.CharField(source='user.name', read_only=True)
@@ -122,3 +143,8 @@ class MasterLocationSerializer(serializers.ModelSerializer):
         if instance.assignedTo:
             response['assignedTo'] = UserSerializer(instance.assignedTo).data
         return response
+
+class OccupationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Occupation
+        fields = '__all__'

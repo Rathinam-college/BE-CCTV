@@ -1,19 +1,23 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
+from rest_framework import viewsets, status
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from .models import (
     Camera, NVR, Biometric, Barrier, NetworkSwitch, ActivityLog, 
     CameraRemark, NVRRemark, BiometricRemark, SwitchRemark,
     CameraRelocation, NVRRelocation, BiometricRelocation, SwitchRelocation,
-    GlobalSiteConfig, MasterLocation
+    GlobalSiteConfig, MasterLocation,
+    Rack, RackRemark, RackRelocation, Occupation
 )
 from .serializers import (
     CameraSerializer, NVRSerializer, BiometricSerializer, BarrierSerializer, 
     NetworkSwitchSerializer, ActivityLogSerializer, CameraRemarkSerializer, 
     NVRRemarkSerializer, BiometricRemarkSerializer, SwitchRemarkSerializer,
     CameraRelocationSerializer, NVRRelocationSerializer, BiometricRelocationSerializer, SwitchRelocationSerializer,
-    GlobalSiteConfigSerializer, MasterLocationSerializer
+    GlobalSiteConfigSerializer, MasterLocationSerializer,
+    RackSerializer, RackRemarkSerializer, RackRelocationSerializer, OccupationSerializer
 )
 
 from django.db import transaction
@@ -243,7 +247,7 @@ class NVRViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def create(self, request, *args, **kwargs):
-        if request.user.role not in ['Super Admin', 'Admin'] and not check_can_edit(request.user, 'NVR'):
+        if request.user.role not in ['Super Admin', 'Admin'] and not check_can_edit(request.user, 'Storage'):
             return Response({'message': 'Not authorized'}, status=status.HTTP_403_FORBIDDEN)
         response = super().create(request, *args, **kwargs)
         log_activity(request.user, 'CREATE', 'NVR', f"Created NVR: {request.data.get('nvrName')}", request)
@@ -251,7 +255,7 @@ class NVRViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'])
     def upload_excel(self, request):
-        if request.user.role not in ['Super Admin', 'Admin'] and not check_can_edit(request.user, 'NVR'):
+        if request.user.role not in ['Super Admin', 'Admin'] and not check_can_edit(request.user, 'Storage'):
             return Response({'message': 'Not authorized'}, status=status.HTTP_403_FORBIDDEN)
         
         file_obj = request.FILES.get('file')
@@ -314,7 +318,7 @@ class NVRViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'])
     def bulk_create(self, request):
-        if request.user.role not in ['Super Admin', 'Admin'] and not check_can_edit(request.user, 'NVR'):
+        if request.user.role not in ['Super Admin', 'Admin'] and not check_can_edit(request.user, 'Storage'):
             return Response({'message': 'Not authorized'}, status=status.HTTP_403_FORBIDDEN)
         
         data = request.data
@@ -354,7 +358,7 @@ class NVRViewSet(viewsets.ModelViewSet):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def update(self, request, *args, **kwargs):
-        if request.user.role not in ['Super Admin', 'Admin'] and not check_can_edit(request.user, 'NVR'):
+        if request.user.role not in ['Super Admin', 'Admin'] and not check_can_edit(request.user, 'Storage'):
             return Response({'message': 'Not authorized'}, status=status.HTTP_403_FORBIDDEN)
             
         instance = self.get_object()
@@ -379,7 +383,7 @@ class NVRViewSet(viewsets.ModelViewSet):
         return response
 
     def destroy(self, request, *args, **kwargs):
-        if request.user.role not in ['Super Admin', 'Admin'] and not check_can_edit(request.user, 'NVR'):
+        if request.user.role not in ['Super Admin', 'Admin'] and not check_can_edit(request.user, 'Storage'):
             return Response({'message': 'Not authorized'}, status=status.HTTP_403_FORBIDDEN)
         log_activity(request.user, 'DELETE', 'NVR', f"Deleted NVR ID: {kwargs.get('pk')}", request)
         return super().destroy(request, *args, **kwargs)
@@ -666,7 +670,6 @@ class NetworkSwitchViewSet(viewsets.ModelViewSet):
         serializer.save(switch=switch, user=request.user)
         log_activity(request.user, 'RELOCATE', 'Network Switches', f"Relocated Switch: {switch.name}", request)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def update(self, request, *args, **kwargs):
         if request.user.role not in ['Super Admin', 'Admin'] and not check_can_edit(request.user, 'Network Switches'):
@@ -765,8 +768,22 @@ class MasterLocationViewSet(viewsets.ModelViewSet):
         log_activity(self.request.user, 'EDIT', 'Location', f"Updated master location: {instance.collegeName}", self.request)
 
     def perform_destroy(self, instance):
-        log_activity(self.request.user, 'DELETE', 'Location', f"Deleted master location: {instance.collegeName}", self.request)
-        instance.delete()
+        log_activity(self.request.user, 'DELETE', 'Location', f"Deleted master location: {instance.collegeName} {instance.block}", self.request)
+        
+        college = instance.collegeName
+        block = instance.block
+        floor = instance.floor
+        room = instance.room
+        
+        if not floor and not room:
+            # Deleting a Block -> Delete block, all its floors, and all its rooms
+            MasterLocation.objects.filter(collegeName=college, block=block).delete()
+        elif not room:
+            # Deleting a Floor -> Delete the floor and all its rooms
+            MasterLocation.objects.filter(collegeName=college, block=block, floor=floor).delete()
+        else:
+            # Deleting a specific Room
+            instance.delete()
 
 class GlobalSiteConfigViewSet(viewsets.ModelViewSet):
     queryset = GlobalSiteConfig.objects.all()
@@ -854,3 +871,139 @@ class GlobalSiteConfigViewSet(viewsets.ModelViewSet):
             ]
         })
 
+class RackViewSet(viewsets.ModelViewSet):
+    queryset = Rack.objects.all()
+    serializer_class = RackSerializer
+    permission_classes = [IsAuthenticated]
+
+    def create(self, request, *args, **kwargs):
+        if request.user.role not in ['Super Admin', 'Admin'] and not check_can_edit(request.user, 'Racks'):
+            return Response({'message': 'Not authorized'}, status=status.HTTP_403_FORBIDDEN)
+        response = super().create(request, *args, **kwargs)
+        log_activity(request.user, 'CREATE', 'Racks', f"Created Rack: {request.data.get('name')}", request)
+        return response
+
+    @action(detail=True, methods=['post'])
+    def add_remark(self, request, pk=None):
+        rack = self.get_object()
+        remark_text = request.data.get('remark')
+        if not remark_text:
+            return Response({'message': 'Remark is required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        remark = RackRemark.objects.create(
+            rack=rack,
+            remark=remark_text,
+            device_status=rack.status,
+            user=request.user
+        )
+        
+        log_activity(request.user, 'REMARK', 'Racks', f"Added remark to Rack: {rack.name}", request)
+        return Response(RackRemarkSerializer(remark).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'])
+    def add_relocation(self, request, pk=None):
+        rack = self.get_object()
+        serializer = RackRelocationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(rack=rack, user=request.user)
+        log_activity(request.user, 'RELOCATE', 'Racks', f"Relocated Rack: {rack.name}", request)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    def update(self, request, *args, **kwargs):
+        if request.user.role not in ['Super Admin', 'Admin'] and not check_can_edit(request.user, 'Racks'):
+            return Response({'message': 'Not authorized'}, status=status.HTTP_403_FORBIDDEN)
+            
+        instance = self.get_object()
+        old_status = instance.status
+        
+        response = super().update(request, *args, **kwargs)
+        
+        if response.status_code == status.HTTP_200_OK:
+            instance.refresh_from_db()
+            new_status = instance.status
+            if old_status != new_status:
+                log_activity(request.user, 'STATUS_CHANGE', 'Racks', f"Status changed from {old_status} to {new_status} for Rack: {instance.name}", request)
+                RackRemark.objects.create(
+                    rack=instance,
+                    remark=f"System: Status changed from {old_status} to {new_status}",
+                    device_status=new_status,
+                    user=request.user
+                )
+            else:
+                log_activity(request.user, 'EDIT', 'Racks', f"Updated Rack: {instance.name}", request)
+                
+        return response
+
+    def destroy(self, request, *args, **kwargs):
+        if request.user.role not in ['Super Admin', 'Admin'] and not check_can_edit(request.user, 'Racks'):
+            return Response({'message': 'Not authorized'}, status=status.HTTP_403_FORBIDDEN)
+        log_activity(request.user, 'DELETE', 'Racks', f"Deleted Rack ID: {kwargs.get('pk')}", request)
+        return super().destroy(request, *args, **kwargs)
+
+class RackRemarkViewSet(viewsets.ModelViewSet):
+    queryset = RackRemark.objects.all()
+    serializer_class = RackRemarkSerializer
+    permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+
+class OccupationViewSet(viewsets.ModelViewSet):
+    queryset = Occupation.objects.all().order_by('-createdAt')
+    serializer_class = OccupationSerializer
+    permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        serializer.save()
+        log_activity(self.request.user, 'CREATE', 'Occupation', f"Created occupation: {self.request.data.get('name')}", self.request)
+
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        log_activity(self.request.user, 'EDIT', 'Occupation', f"Updated occupation: {instance.name}", self.request)
+
+    def perform_destroy(self, instance):
+        log_activity(self.request.user, 'DELETE', 'Occupation', f"Deleted occupation: {instance.name}", self.request)
+        instance.delete()
+
+    @action(detail=False, methods=['post'])
+    def merge(self, request):
+        old_names = request.data.get('old_names', [])
+        new_name = request.data.get('new_name')
+        occupation_type = request.data.get('occupation_type', 'College')
+
+        if not old_names or not new_name:
+            return Response({"error": "old_names and new_name are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            # Create or update the master occupation
+            occupation, created = Occupation.objects.get_or_create(
+                name=new_name,
+                defaults={'occupation_type': occupation_type}
+            )
+            
+            # Store merged legacy names
+            existing_merged = occupation.merged_from if occupation.merged_from else []
+            merged_set = set(existing_merged)
+            merged_set.update(old_names)
+            occupation.merged_from = list(merged_set)
+            occupation.save()
+
+            # Update all standard CCTV devices
+            Camera.objects.filter(collegeName__in=old_names).update(collegeName=new_name)
+            NVR.objects.filter(collegeName__in=old_names).update(collegeName=new_name)
+            Biometric.objects.filter(collegeName__in=old_names).update(collegeName=new_name)
+            NetworkSwitch.objects.filter(collegeName__in=old_names).update(collegeName=new_name)
+            Rack.objects.filter(collegeName__in=old_names).update(collegeName=new_name)
+
+            # Update Tickets in maintenance app
+            try:
+                from maintenance.models import Ticket
+                Ticket.objects.filter(collegeName__in=old_names).update(collegeName=new_name)
+            except ImportError:
+                pass # Maintenance app might not be installed or available
+
+            # (User requested to KEEP the old occupations A and B in the registry after merging)
+            # Occupation.objects.filter(name__in=old_names).exclude(name=new_name).delete()
+
+        log_activity(request.user, 'MERGE', 'Occupation', f"Merged {len(old_names)} legacy colleges into {new_name}", request)
+        return Response({"message": "Successfully merged colleges.", "new_name": new_name}, status=status.HTTP_200_OK)

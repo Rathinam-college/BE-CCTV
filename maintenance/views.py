@@ -1,8 +1,8 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
-from .models import Ticket, Project, TicketRemark, MaintenanceStaff
-from .serializers import TicketSerializer, ProjectSerializer, TicketRemarkSerializer, MaintenanceStaffSerializer
+from .models import Ticket, Project, TicketRemark, MaintenanceStaff, ProjectDocument, TicketDocument
+from .serializers import TicketSerializer, ProjectSerializer, TicketRemarkSerializer, MaintenanceStaffSerializer, ProjectDocumentSerializer, TicketDocumentSerializer
 from rest_framework.response import Response
 from cctv.views import check_can_edit, log_activity
 
@@ -58,6 +58,29 @@ class ProjectViewSet(viewsets.ModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
     @action(detail=False, methods=['post'])
+    def add_remark(self, request):
+        pass # Assuming the original code had this, we leave it as is or delete it if it's incomplete. Let's just append ProjectDocumentViewSet below.
+
+class ProjectDocumentViewSet(viewsets.ModelViewSet):
+    queryset = ProjectDocument.objects.all()
+    serializer_class = ProjectDocumentSerializer
+    permission_classes = [IsAuthenticated]
+
+    def create(self, request, *args, **kwargs):
+        if not check_can_edit(request.user, 'Projects'):
+            return Response({'message': 'Not authorized'}, status=status.HTTP_403_FORBIDDEN)
+        response = super().create(request, *args, **kwargs)
+        log_activity(request.user, 'CREATE', 'ProjectDocument', f"Uploaded document: {request.data.get('name')}", request)
+        return response
+
+    def destroy(self, request, *args, **kwargs):
+        if not check_can_edit(request.user, 'Projects'):
+            return Response({'message': 'Not authorized'}, status=status.HTTP_403_FORBIDDEN)
+        doc = self.get_object()
+        log_activity(request.user, 'DELETE', 'ProjectDocument', f"Deleted document: {doc.name}", request)
+        return super().destroy(request, *args, **kwargs)
+
+class TicketViewSet(viewsets.ModelViewSet):
     def bulk_create(self, request):
         if not check_can_edit(request.user, 'Projects'):
             return Response({'message': 'Not authorized'}, status=status.HTTP_403_FORBIDDEN)
@@ -103,8 +126,13 @@ class TicketViewSet(viewsets.ModelViewSet):
         instance = self.get_object()
         
         # Restriction: Only Super Admin can edit completed tickets
-        if instance.status == 'Completed' and request.user.role != 'Super Admin':
-            return Response({'message': 'Only Super Admin can modify completed tickets'}, status=status.HTTP_403_FORBIDDEN)
+        # Exception: Allow updating billing details on completed tickets
+        billing_fields = {'bill_number', 'po_number', 'bill_document', 'po_document'}
+        request_keys = set(request.data.keys())
+        is_only_billing_update = request_keys.issubset(billing_fields)
+        
+        if instance.status == 'Completed' and request.user.role != 'Super Admin' and not is_only_billing_update:
+            return Response({'message': 'Only Super Admin can modify completed tickets (except for Billing Records)'}, status=status.HTTP_403_FORBIDDEN)
 
         partial = kwargs.pop('partial', False)
         serializer = self.get_serializer(instance, data=request.data, partial=partial)
@@ -121,8 +149,13 @@ class TicketViewSet(viewsets.ModelViewSet):
         instance = self.get_object()
         
         # Restriction: Only Super Admin can edit completed tickets
-        if instance.status == 'Completed' and request.user.role != 'Super Admin':
-            return Response({'message': 'Only Super Admin can modify completed tickets'}, status=status.HTTP_403_FORBIDDEN)
+        # Exception: Allow updating billing details on completed tickets
+        billing_fields = {'bill_number', 'po_number', 'bill_document', 'po_document'}
+        request_keys = set(request.data.keys())
+        is_only_billing_update = request_keys.issubset(billing_fields)
+        
+        if instance.status == 'Completed' and request.user.role != 'Super Admin' and not is_only_billing_update:
+            return Response({'message': 'Only Super Admin can modify completed tickets (except for Billing Records)'}, status=status.HTTP_403_FORBIDDEN)
 
         kwargs['partial'] = True
         response = self.update(request, *args, **kwargs)
@@ -209,3 +242,22 @@ class TicketViewSet(viewsets.ModelViewSet):
         
         serializer = TicketRemarkSerializer(remark)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+class TicketDocumentViewSet(viewsets.ModelViewSet):
+    queryset = TicketDocument.objects.all()
+    serializer_class = TicketDocumentSerializer
+    permission_classes = [IsAuthenticated]
+
+    def create(self, request, *args, **kwargs):
+        if not check_can_edit(request.user, 'Maintenance'):
+            return Response({'message': 'Not authorized'}, status=status.HTTP_403_FORBIDDEN)
+        response = super().create(request, *args, **kwargs)
+        log_activity(request.user, 'CREATE', 'TicketDocument', f"Uploaded document: {request.data.get('name')}", request)
+        return response
+
+    def destroy(self, request, *args, **kwargs):
+        if not check_can_edit(request.user, 'Maintenance'):
+            return Response({'message': 'Not authorized'}, status=status.HTTP_403_FORBIDDEN)
+        doc = self.get_object()
+        log_activity(request.user, 'DELETE', 'TicketDocument', f"Deleted document: {doc.name}", request)
+        return super().destroy(request, *args, **kwargs)

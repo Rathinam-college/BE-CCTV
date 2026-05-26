@@ -6,8 +6,8 @@ django.setup()
 
 from users.models import User
 
-email = 'Admin@gmail.com'
-password = 'admin'
+email = 'admin@mail.com'
+password = 'admin123'
 
 user, created = User.objects.get_or_create(
     email=email,

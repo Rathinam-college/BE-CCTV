@@ -21,7 +21,23 @@ class Project(models.Model):
     start_date = models.DateField(blank=True, null=True)
     end_date = models.DateField(blank=True, null=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Active')
+    
+    # Billing & PO Details
+    bill_number = models.CharField(max_length=255, blank=True, null=True)
+    po_number = models.CharField(max_length=255, blank=True, null=True)
+    bill_document = models.FileField(upload_to='maintenance/projects/bills/', blank=True, null=True)
+    po_document = models.FileField(upload_to='maintenance/projects/pos/', blank=True, null=True)
+    
     createdAt = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
+class ProjectDocument(models.Model):
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='documents')
+    name = models.CharField(max_length=255)
+    file = models.FileField(upload_to='maintenance/projects/documents/')
+    uploaded_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return self.name
@@ -61,11 +77,20 @@ class Ticket(models.Model):
     workRemarks = models.TextField(blank=True, null=True)
     replacedParts = models.TextField(blank=True, null=True)
     nextServiceDate = models.DateTimeField(blank=True, null=True)
+    
+    # Billing & PO Details
+    bill_number = models.CharField(max_length=255, blank=True, null=True)
+    po_number = models.CharField(max_length=255, blank=True, null=True)
+    bill_document = models.FileField(upload_to='maintenance/tickets/bills/', blank=True, null=True)
+    po_document = models.FileField(upload_to='maintenance/tickets/pos/', blank=True, null=True)
+    
     createdAt = models.DateTimeField(auto_now_add=True)
     updatedAt = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"Ticket {self.id} - {self.status}"
+
+from django.utils import timezone
 
 class TicketRemark(models.Model):
     ticket = models.ForeignKey(Ticket, related_name='message_history', on_delete=models.CASCADE)
@@ -78,3 +103,12 @@ class TicketRemark(models.Model):
 
     def __str__(self):
         return f"Remark for Ticket {self.ticket.id} on {self.date}"
+
+class TicketDocument(models.Model):
+    ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE, related_name='documents')
+    name = models.CharField(max_length=255)
+    file = models.FileField(upload_to='maintenance/tickets/documents/')
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
