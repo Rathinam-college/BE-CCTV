@@ -95,6 +95,7 @@ from django.utils import timezone
 class TicketRemark(models.Model):
     ticket = models.ForeignKey(Ticket, related_name='message_history', on_delete=models.CASCADE)
     remark = models.TextField()
+    image = models.ImageField(upload_to='maintenance/ticket_remarks/', blank=True, null=True)
     device_status = models.CharField(max_length=20, blank=True, null=True)
     date = models.DateField(auto_now_add=True)
     time = models.TimeField(auto_now_add=True)

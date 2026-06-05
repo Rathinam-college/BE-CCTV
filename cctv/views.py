@@ -864,6 +864,8 @@ class GlobalSiteConfigViewSet(viewsets.ModelViewSet):
                 'open': Ticket.objects.filter(status='Open').count(),
                 'inProgress': Ticket.objects.filter(status='In Progress').count(),
                 'completed': Ticket.objects.filter(status='Completed').count(),
+                'upgrade': Ticket.objects.filter(category__icontains='Upgrade').count(),
+                'project': Ticket.objects.filter(category__icontains='Project').count(),
             },
             'distribution': [
                 {'name': c['collegeName'] or 'Unassigned', 'count': c['count']}

@@ -58,8 +58,10 @@ class NVR(models.Model):
         ('OUTSIDE', 'Outside Campus'),
     ]
 
-    sNo = models.CharField(max_length=50, blank=True, null=True)
     ipAddress = models.CharField(max_length=45, blank=True, null=True)
+    subnetMask = models.CharField(max_length=255, blank=True, null=True)
+    gateway = models.CharField(max_length=255, blank=True, null=True)
+    macAddress = models.CharField(max_length=255, blank=True, null=True)
     nvrName = models.CharField(max_length=255)
     location = models.CharField(max_length=255)
     brand = models.CharField(max_length=255, blank=True, null=True)
@@ -98,7 +100,10 @@ class Biometric(models.Model):
     location = models.CharField(max_length=255)
     type = models.CharField(max_length=100, default='Fingerprint')
     brand = models.CharField(max_length=100, blank=True, null=True)
+    model = models.CharField(max_length=255, blank=True, null=True)
     ipAddress = models.CharField(max_length=45, blank=True, null=True)
+    subnetMask = models.CharField(max_length=255, blank=True, null=True)
+    gateway = models.CharField(max_length=255, blank=True, null=True)
     serverIp = models.CharField(max_length=45, blank=True, null=True)
     serialNumber = models.CharField(max_length=100, blank=True, null=True, unique=True)
     macAddress = models.CharField(max_length=255, blank=True, null=True)
@@ -166,6 +171,9 @@ class NetworkSwitch(models.Model):
 
     name = models.CharField(max_length=255)
     ipAddress = models.CharField(max_length=45, blank=True, null=True)
+    subnetMask = models.CharField(max_length=255, blank=True, null=True)
+    gateway = models.CharField(max_length=255, blank=True, null=True)
+    macAddress = models.CharField(max_length=255, blank=True, null=True)
     location = models.CharField(max_length=255)
     brand = models.CharField(max_length=100, blank=True, null=True)
     model = models.CharField(max_length=100, blank=True, null=True)

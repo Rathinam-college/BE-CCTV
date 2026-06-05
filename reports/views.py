@@ -3,7 +3,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework import status
-from cctv.models import Camera
+from cctv.models import Camera, NVR, NetworkSwitch, Biometric
+from maintenance.models import Ticket, Project
 
 try:
     import pandas as pd
@@ -79,3 +80,81 @@ def export_report(request):
     # Dummy endpoint for exporting reports
     # In a real scenario, generate a PDF or Excel and return as FileResponse
     return Response({'message': 'Report export endpoint'})
+
+@api_view(['GET'])
+@permission_classes([])
+def gm_dashboard_api(request):
+    """
+    API endpoint for external GM View integration.
+    Returns aggregated stats for Tickets, Projects, and Devices.
+    """
+    
+    # 1. Ticket Statistics
+    total_tickets = Ticket.objects.count()
+    open_tickets = Ticket.objects.filter(status='Open').count()
+    in_progress_tickets = Ticket.objects.filter(status='In Progress').count()
+    completed_tickets = Ticket.objects.filter(status='Completed').count()
+    
+    # 2. Project Statistics
+    total_projects = Project.objects.count()
+    active_projects = Project.objects.filter(status='Active').count()
+    completed_projects = Project.objects.filter(status='Completed').count()
+    on_hold_projects = Project.objects.filter(status='On Hold').count()
+    
+    # 3. Device Inventory
+    total_cameras = Camera.objects.count()
+    total_nvrs = NVR.objects.count()
+    total_switches = NetworkSwitch.objects.count()
+    total_biometrics = Biometric.objects.count()
+    
+    # 4. Recent Active Issues (Top 10 Open/In Progress)
+    recent_tickets = Ticket.objects.filter(status__in=['Open', 'In Progress']).order_by('-createdAt')[:10]
+    recent_tickets_data = [
+        {
+            'id': t.id,
+            'issueDescription': t.issueDescription,
+            'location': t.location or f"{t.collegeName} {t.block} {t.floor} {t.room}".strip(),
+            'status': t.status,
+            'category': t.category,
+            'createdAt': t.createdAt.strftime('%Y-%m-%d %H:%M:%S') if t.createdAt else None
+        } for t in recent_tickets
+    ]
+    
+    # 5. Active Projects (Top 5 Active)
+    active_projects_list = Project.objects.filter(status='Active').order_by('-createdAt')[:5]
+    active_projects_data = [
+        {
+            'id': p.id,
+            'name': p.name,
+            'client_name': p.client_name,
+            'status': p.status,
+            'start_date': p.start_date.strftime('%Y-%m-%d') if p.start_date else None,
+            'end_date': p.end_date.strftime('%Y-%m-%d') if p.end_date else None,
+            'ticket_count': p.tickets.count()
+        } for p in active_projects_list
+    ]
+    
+    data = {
+        'tickets': {
+            'total': total_tickets,
+            'open': open_tickets,
+            'in_progress': in_progress_tickets,
+            'completed': completed_tickets
+        },
+        'projects': {
+            'total': total_projects,
+            'active': active_projects,
+            'completed': completed_projects,
+            'on_hold': on_hold_projects
+        },
+        'devices': {
+            'cameras': total_cameras,
+            'nvrs': total_nvrs,
+            'switches': total_switches,
+            'biometrics': total_biometrics
+        },
+        'recent_issues': recent_tickets_data,
+        'active_projects': active_projects_data
+    }
+    
+    return Response(data, status=status.HTTP_200_OK)

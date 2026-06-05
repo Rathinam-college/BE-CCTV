@@ -229,6 +229,7 @@ class TicketViewSet(viewsets.ModelViewSet):
             return Response({'message': 'Cannot add messages to a completed ticket'}, status=status.HTTP_403_FORBIDDEN)
 
         remark_text = request.data.get('remark')
+        image = request.FILES.get('image')
         
         if not remark_text:
             return Response({'message': 'Remark text is required'}, status=status.HTTP_400_BAD_REQUEST)
@@ -236,6 +237,7 @@ class TicketViewSet(viewsets.ModelViewSet):
         remark = TicketRemark.objects.create(
             ticket=ticket,
             remark=remark_text,
+            image=image,
             device_status=ticket.status,
             user=request.user
         )
