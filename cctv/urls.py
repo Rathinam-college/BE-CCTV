@@ -4,8 +4,9 @@ from .views import (
     CameraViewSet, NVRViewSet, BiometricViewSet, BarrierViewSet, 
     NetworkSwitchViewSet, ActivityLogViewSet,
     CameraRemarkViewSet, NVRRemarkViewSet, BiometricRemarkViewSet, SwitchRemarkViewSet,
-    GlobalSiteConfigViewSet, MasterLocationViewSet,
-    RackViewSet, RackRemarkViewSet, OccupationViewSet
+    GlobalSiteConfigViewSet,
+    RackViewSet, RackRemarkViewSet, DivisionViewSet, BrandViewSet,
+    DatabaseBackupView
 )
 
 router = DefaultRouter()
@@ -16,10 +17,12 @@ router.register(r'switches', NetworkSwitchViewSet, basename='switch')
 router.register(r'racks', RackViewSet, basename='rack')
 router.register(r'logs', ActivityLogViewSet, basename='activitylog')
 
-# Master Location Routes
-router.register(r'master_locations', MasterLocationViewSet, basename='master_location')
+from .views import LocationViewSet
+router.register(r'locations', LocationViewSet, basename='location')
+
 router.register(r'global-site-config', GlobalSiteConfigViewSet, basename='globalsiteconfig')
-router.register(r'occupations', OccupationViewSet, basename='occupation')
+router.register(r'divisions', DivisionViewSet, basename='division')
+router.register(r'brands', BrandViewSet, basename='brand')
 
 router.register(r'', CameraViewSet, basename='camera')
 

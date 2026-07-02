@@ -113,7 +113,7 @@ def gm_dashboard_api(request):
         {
             'id': t.id,
             'issueDescription': t.issueDescription,
-            'location': t.location or f"{t.collegeName} {t.block} {t.floor} {t.room}".strip(),
+            'location': t.location or f"{t.divisionName} {t.block} {t.floor} {t.room}".strip(),
             'status': t.status,
             'category': t.category,
             'createdAt': t.createdAt.strftime('%Y-%m-%d %H:%M:%S') if t.createdAt else None

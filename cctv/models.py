@@ -27,7 +27,7 @@ class Camera(models.Model):
     updatedAt = models.DateTimeField(auto_now=True)
     
     # Location Intelligence
-    collegeName = models.CharField(max_length=255, blank=True, null=True)
+    divisionName = models.CharField(max_length=255, blank=True, null=True)
     block = models.CharField(max_length=255, blank=True, null=True)
     floor = models.CharField(max_length=255, blank=True, null=True)
     room = models.CharField(max_length=255, blank=True, null=True)
@@ -36,11 +36,13 @@ class Camera(models.Model):
     # Additional Details
     deviceType = models.CharField(max_length=255, blank=True, null=True)
     brand = models.CharField(max_length=100, blank=True, null=True)
+    model = models.CharField(max_length=100, blank=True, null=True)
     serialNumber = models.CharField(max_length=255, blank=True, null=True)
     macAddress = models.CharField(max_length=255, blank=True, null=True)
     index = models.CharField(max_length=100, blank=True, null=True)
     subnetMask = models.CharField(max_length=255, blank=True, null=True)
     gateway = models.CharField(max_length=255, blank=True, null=True)
+    portNumber = models.CharField(max_length=50, blank=True, null=True)
     remarks = models.TextField(blank=True, null=True)
 
     def __str__(self):
@@ -62,6 +64,7 @@ class NVR(models.Model):
     subnetMask = models.CharField(max_length=255, blank=True, null=True)
     gateway = models.CharField(max_length=255, blank=True, null=True)
     macAddress = models.CharField(max_length=255, blank=True, null=True)
+    portNumber = models.CharField(max_length=50, blank=True, null=True)
     nvrName = models.CharField(max_length=255)
     location = models.CharField(max_length=255)
     brand = models.CharField(max_length=255, blank=True, null=True)
@@ -74,7 +77,7 @@ class NVR(models.Model):
     updatedAt = models.DateTimeField(auto_now=True)
     
     # Location Intelligence
-    collegeName = models.CharField(max_length=255, blank=True, null=True)
+    divisionName = models.CharField(max_length=255, blank=True, null=True)
     block = models.CharField(max_length=255, blank=True, null=True)
     floor = models.CharField(max_length=255, blank=True, null=True)
     room = models.CharField(max_length=255, blank=True, null=True)
@@ -99,6 +102,7 @@ class Biometric(models.Model):
     name = models.CharField(max_length=255)
     location = models.CharField(max_length=255)
     type = models.CharField(max_length=100, default='Fingerprint')
+    usage = models.CharField(max_length=255, blank=True, null=True)
     brand = models.CharField(max_length=100, blank=True, null=True)
     model = models.CharField(max_length=255, blank=True, null=True)
     ipAddress = models.CharField(max_length=45, blank=True, null=True)
@@ -106,6 +110,7 @@ class Biometric(models.Model):
     gateway = models.CharField(max_length=255, blank=True, null=True)
     serverIp = models.CharField(max_length=45, blank=True, null=True)
     serialNumber = models.CharField(max_length=100, blank=True, null=True, unique=True)
+    hardwareSerial = models.CharField(max_length=255, blank=True, null=True)
     macAddress = models.CharField(max_length=255, blank=True, null=True)
     syncStatus = models.CharField(max_length=100, default='In Sync')
     lastCheckIn = models.CharField(max_length=100, blank=True, null=True)
@@ -114,7 +119,7 @@ class Biometric(models.Model):
     updatedAt = models.DateTimeField(auto_now=True)
     
     # Location Intelligence
-    collegeName = models.CharField(max_length=255, blank=True, null=True)
+    divisionName = models.CharField(max_length=255, blank=True, null=True)
     block = models.CharField(max_length=255, blank=True, null=True)
     floor = models.CharField(max_length=255, blank=True, null=True)
     room = models.CharField(max_length=255, blank=True, null=True)
@@ -147,7 +152,7 @@ class Barrier(models.Model):
     updatedAt = models.DateTimeField(auto_now=True)
     
     # Location Intelligence
-    collegeName = models.CharField(max_length=255, blank=True, null=True)
+    divisionName = models.CharField(max_length=255, blank=True, null=True)
     block = models.CharField(max_length=255, blank=True, null=True)
     floor = models.CharField(max_length=255, blank=True, null=True)
     room = models.CharField(max_length=255, blank=True, null=True)
@@ -178,13 +183,15 @@ class NetworkSwitch(models.Model):
     brand = models.CharField(max_length=100, blank=True, null=True)
     model = models.CharField(max_length=100, blank=True, null=True)
     portCount = models.CharField(max_length=50, blank=True, null=True)
+    ethUplink = models.CharField(max_length=100, blank=True, null=True)
+    sfpUplink = models.CharField(max_length=100, blank=True, null=True)
     serialNumber = models.CharField(max_length=100, blank=True, null=True, unique=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Online')
     createdAt = models.DateTimeField(auto_now_add=True)
     updatedAt = models.DateTimeField(auto_now=True)
     
     # Location Intelligence
-    collegeName = models.CharField(max_length=255, blank=True, null=True)
+    divisionName = models.CharField(max_length=255, blank=True, null=True)
     block = models.CharField(max_length=255, blank=True, null=True)
     floor = models.CharField(max_length=255, blank=True, null=True)
     room = models.CharField(max_length=255, blank=True, null=True)
@@ -282,7 +289,7 @@ class SwitchRelocation(models.Model):
     createdAt = models.DateTimeField(auto_now_add=True)
 
 class GlobalSiteConfig(models.Model):
-    collegeName = models.CharField(max_length=255, blank=True, null=True)
+    divisionName = models.CharField(max_length=255, blank=True, null=True)
     block = models.CharField(max_length=255, blank=True, null=True)
     floor = models.CharField(max_length=255, blank=True, null=True)
     room = models.CharField(max_length=255, blank=True, null=True)
@@ -290,20 +297,39 @@ class GlobalSiteConfig(models.Model):
     assignedTo = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='global_managed_sites')
     updatedAt = models.DateTimeField(auto_now=True)
 
-class MasterLocation(models.Model):
-    collegeName = models.CharField(max_length=255, blank=True, null=True)
-    block = models.CharField(max_length=255, blank=True, null=True)
-    floor = models.CharField(max_length=255, blank=True, null=True)
-    room = models.CharField(max_length=255, blank=True, null=True)
-    brand = models.CharField(max_length=255, blank=True, null=True)
-    assignedTo = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='managed_locations')
+class Block(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    name = models.CharField(max_length=255, unique=True)
+    createdAt = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
+class Floor(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    name = models.CharField(max_length=255)
+    block = models.ForeignKey(Block, on_delete=models.CASCADE, related_name='floors', null=True, blank=True)
     createdAt = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = ('collegeName', 'block', 'floor', 'room')
+        unique_together = ('name', 'block')
 
     def __str__(self):
-        return f"{self.collegeName} | {self.block} | {self.floor} | {self.room} ({self.brand})"
+        return f"{self.block.name if self.block else ''} - {self.name}"
+
+class Room(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    name = models.CharField(max_length=255)
+    block = models.ForeignKey(Block, on_delete=models.CASCADE, related_name='rooms')
+    floor = models.ForeignKey(Floor, on_delete=models.CASCADE, related_name='rooms')
+    createdAt = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('name', 'block', 'floor')
+
+    def __str__(self):
+        return f"{self.block.name} - {self.floor.name} - {self.name}"
+
 
 class Rack(models.Model):
     STATUS_CHOICES = [
@@ -328,7 +354,7 @@ class Rack(models.Model):
     updatedAt = models.DateTimeField(auto_now=True)
     
     # Location Intelligence
-    collegeName = models.CharField(max_length=255, blank=True, null=True)
+    divisionName = models.CharField(max_length=255, blank=True, null=True)
     block = models.CharField(max_length=255, blank=True, null=True)
     floor = models.CharField(max_length=255, blank=True, null=True)
     room = models.CharField(max_length=255, blank=True, null=True)
@@ -355,11 +381,18 @@ class RackRelocation(models.Model):
     remark = models.TextField(blank=True, null=True)
     createdAt = models.DateTimeField(auto_now_add=True)
 
-class Occupation(models.Model):
+class Division(models.Model):
     name = models.CharField(max_length=255, unique=True)
-    occupation_type = models.CharField(max_length=50)
+    division_type = models.CharField(max_length=50)
     merged_from = models.JSONField(default=list, blank=True)
     createdAt = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.name} ({self.occupation_type})"
+        return f"{self.name} ({self.division_type})"
+
+class Brand(models.Model):
+    name = models.CharField(max_length=255, unique=True)
+    createdAt = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
