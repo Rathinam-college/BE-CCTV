@@ -5,21 +5,21 @@ from django.db import connection
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
 django.setup()
 
-from cctv.models import Occupation, MasterLocation
+from cctv.models import Division, MasterLocation
 
 def force_create():
-    print("--- ATTEMPTING TO FORCE-CREATE TABLES FOR OCCUPATION & ONBOARDING ---")
+    print("--- ATTEMPTING TO FORCE-CREATE TABLES FOR DIVISION & ONBOARDING ---")
     try:
         # 1. Drop existing tables if they exist to start fresh
         with connection.cursor() as cursor:
-            print("Dropping cctv_occupation and cctv_masterlocation if they exist...")
-            cursor.execute("DROP TABLE IF EXISTS cctv_occupation CASCADE;")
+            print("Dropping cctv_division and cctv_masterlocation if they exist...")
+            cursor.execute("DROP TABLE IF EXISTS cctv_division CASCADE;")
             cursor.execute("DROP TABLE IF EXISTS cctv_masterlocation CASCADE;")
         
         # 2. Use Django's internal schema editor to create tables EXACTLY as defined in models
         with connection.schema_editor() as schema_editor:
-            print("Creating cctv_occupation table...")
-            schema_editor.create_model(Occupation)
+            print("Creating cctv_division table...")
+            schema_editor.create_model(Division)
             
             print("Creating cctv_masterlocation table...")
             schema_editor.create_model(MasterLocation)

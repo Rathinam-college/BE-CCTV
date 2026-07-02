@@ -61,7 +61,22 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'core.wsgi.application'
 
-if os.getenv('USE_SQLITE', 'False') == 'True':
+import socket
+
+use_sqlite = os.getenv('USE_SQLITE', 'False') == 'True'
+
+if not use_sqlite:
+    db_host = os.getenv('DB_HOST', 'localhost')
+    db_port = os.getenv('DB_PORT', '5432')
+    try:
+        # Quick TCP socket check to see if database host & port are reachable
+        with socket.create_connection((db_host, int(db_port)), timeout=1.0):
+            pass
+    except Exception:
+        print(f"WARNING: PostgreSQL database at {db_host}:{db_port} is unreachable. Falling back to SQLite.")
+        use_sqlite = True
+
+if use_sqlite:
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
@@ -134,3 +149,11 @@ CORS_ALLOW_CREDENTIALS = True
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 USE_X_FORWARDED_HOST = True
 USE_X_FORWARDED_PORT = True
+
+# Email Configuration
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', 587))
+EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True') == 'True'
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')

@@ -3,8 +3,8 @@ from .models import (
     Camera, NVR, Biometric, Barrier, NetworkSwitch, ActivityLog, 
     CameraRemark, NVRRemark, BiometricRemark, SwitchRemark,
     CameraRelocation, NVRRelocation, BiometricRelocation, SwitchRelocation,
-    GlobalSiteConfig, MasterLocation,
-    Rack, RackRemark, RackRelocation, Occupation
+    GlobalSiteConfig,
+    Rack, RackRemark, RackRelocation, Division, Brand
 )
 
 class CameraRelocationSerializer(serializers.ModelSerializer):
@@ -132,19 +132,13 @@ class GlobalSiteConfigSerializer(serializers.ModelSerializer):
             response['assignedTo'] = UserSerializer(instance.assignedTo).data
         return response
 
-class MasterLocationSerializer(serializers.ModelSerializer):
+
+class DivisionSerializer(serializers.ModelSerializer):
     class Meta:
-        model = MasterLocation
+        model = Division
         fields = '__all__'
 
-    def to_representation(self, instance):
-        from users.serializers import UserSerializer
-        response = super().to_representation(instance)
-        if instance.assignedTo:
-            response['assignedTo'] = UserSerializer(instance.assignedTo).data
-        return response
-
-class OccupationSerializer(serializers.ModelSerializer):
+class BrandSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Occupation
+        model = Brand
         fields = '__all__'

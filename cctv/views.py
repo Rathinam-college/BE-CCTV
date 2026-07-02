@@ -2,22 +2,29 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
+from rest_framework.views import APIView
+from django.core.management import call_command
+from django.core import serializers
+from django.apps import apps
+from django.db.models.functions import TruncMonth
+import json
+from django.http import HttpResponse
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from .models import (
     Camera, NVR, Biometric, Barrier, NetworkSwitch, ActivityLog, 
     CameraRemark, NVRRemark, BiometricRemark, SwitchRemark,
     CameraRelocation, NVRRelocation, BiometricRelocation, SwitchRelocation,
-    GlobalSiteConfig, MasterLocation,
-    Rack, RackRemark, RackRelocation, Occupation
+    GlobalSiteConfig,
+    Rack, RackRemark, RackRelocation, Division, Brand
 )
 from .serializers import (
     CameraSerializer, NVRSerializer, BiometricSerializer, BarrierSerializer, 
     NetworkSwitchSerializer, ActivityLogSerializer, CameraRemarkSerializer, 
     NVRRemarkSerializer, BiometricRemarkSerializer, SwitchRemarkSerializer,
     CameraRelocationSerializer, NVRRelocationSerializer, BiometricRelocationSerializer, SwitchRelocationSerializer,
-    GlobalSiteConfigSerializer, MasterLocationSerializer,
-    RackSerializer, RackRemarkSerializer, RackRelocationSerializer, OccupationSerializer
+    GlobalSiteConfigSerializer,
+    RackSerializer, RackRemarkSerializer, RackRelocationSerializer, DivisionSerializer, BrandSerializer
 )
 
 from django.db import transaction
@@ -42,26 +49,260 @@ def log_activity(user, action, page, details='', request=None):
         ipAddress=ip
     )
 
+class DatabaseBackupView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if request.user.role != 'Super Admin':
+            return Response({'error': 'Unauthorized'}, status=403)
+            
+        action_type = request.query_params.get('action')
+        if action_type == 'get_months':
+            months = set()
+            try:
+                # Query distinct months from ActivityLog (which generally covers everything) or Tickets/Cameras
+                # ActivityLog is a good proxy for activity
+                logs = ActivityLog.objects.annotate(month=TruncMonth('timestamp')).values('month').distinct()
+                for log in logs:
+                    if log['month']:
+                        months.add(log['month'].strftime('%Y-%m'))
+                        
+                from maintenance.models import Ticket
+                tickets = Ticket.objects.annotate(month=TruncMonth('createdAt')).values('month').distinct()
+                for t in tickets:
+                    if t['month']:
+                        months.add(t['month'].strftime('%Y-%m'))
+            except Exception:
+                pass
+            return Response({'months': sorted(list(months), reverse=True)})
+        
+        format_type = request.query_params.get('format', 'json')
+        
+        if format_type == 'sql':
+            from django.conf import settings
+            db = settings.DATABASES['default']
+            
+            if 'sqlite' in db['ENGINE'].lower():
+                import sqlite3
+                import io
+                db_path = db['NAME']
+                try:
+                    conn = sqlite3.connect(db_path)
+                    output = io.StringIO()
+                    for line in conn.iterdump():
+                        output.write('%s\n' % line)
+                    sql_data = output.getvalue().encode('utf-8')
+                    conn.close()
+                    response = HttpResponse(sql_data, content_type='application/sql')
+                    response['Content-Disposition'] = 'attachment; filename="backup.sql"'
+                    return response
+                except Exception as e:
+                    return Response({'error': f"SQLite dump failed: {str(e)}"}, status=400)
+            
+            import subprocess
+            import os
+            
+            env = os.environ.copy()
+            if db.get('PASSWORD'):
+                env['PGPASSWORD'] = str(db['PASSWORD'])
+                
+            cmd = [
+                'pg_dump',
+                '-h', str(db.get('HOST', 'localhost')),
+                '-U', str(db.get('USER', 'postgres')),
+                '-d', str(db.get('NAME', 'postgres')),
+                '--clean', '--if-exists', '--inserts', '--no-owner', '--no-privileges'
+            ]
+            if db.get('PORT'):
+                cmd.extend(['-p', str(db['PORT'])])
+                
+            try:
+                # Add schema-only for now, but user wants 'full data'. 
+                # pg_dump with --inserts will dump schema + data.
+                result = subprocess.run(cmd, env=env, capture_output=True)
+                if result.returncode != 0:
+                    return Response({'error': f"pg_dump failed: {result.stderr.decode('utf-8', errors='ignore')}"}, status=400)
+                
+                response = HttpResponse(result.stdout, content_type='application/sql')
+                response['Content-Disposition'] = 'attachment; filename="backup.sql"'
+                return response
+            except FileNotFoundError:
+                return Response({'error': 'pg_dump command not found on the server. Please ensure PostgreSQL client tools are installed and in the system PATH.'}, status=400)
+            except Exception as e:
+                return Response({'error': f"SQL backup failed: {str(e)}"}, status=400)
+        
+        models_to_dump = request.query_params.get('models')
+        month_filter = request.query_params.get('month')
+        
+        args = []
+        if models_to_dump:
+            args = models_to_dump.split(',')
+        else:
+            args = ['cctv.camera', 'cctv.nvr', 'cctv.biometric', 'cctv.networkswitch', 'cctv.rack', 'maintenance.ticket', 'maintenance.project', 'users.user', 'cctv.activitylog', 'cctv.masterlocation', 'cctv.block', 'cctv.floor', 'cctv.room']
+            
+        try:
+            objects_to_serialize = []
+            for model_str in args:
+                try:
+                    app_label, model_name = model_str.split('.')
+                    model = apps.get_model(app_label, model_name)
+                    qs = model.objects.all()
+                    
+                    if month_filter:
+                        year, mo = month_filter.split('-')
+                        # Check for date fields
+                        date_fields = [f.name for f in model._meta.fields if f.get_internal_type() in ['DateTimeField', 'DateField']]
+                        if 'createdAt' in date_fields:
+                            qs = qs.filter(createdAt__year=year, createdAt__month=mo)
+                        elif 'timestamp' in date_fields:
+                            qs = qs.filter(timestamp__year=year, timestamp__month=mo)
+                        elif 'date_joined' in date_fields:
+                            qs = qs.filter(date_joined__year=year, date_joined__month=mo)
+                            
+                    objects_to_serialize.extend(list(qs))
+                except Exception as inner_e:
+                    print(f"Skipping {model_str}: {inner_e}")
+                    
+            data = serializers.serialize('json', objects_to_serialize)
+            
+            response = HttpResponse(data, content_type='application/json')
+            response['Content-Disposition'] = 'attachment; filename="backup.json"'
+            return response
+        except Exception as e:
+            return Response({'error': str(e)}, status=400)
+
+    def delete(self, request):
+        if request.user.role != 'Super Admin':
+            return Response({'error': 'Unauthorized'}, status=403)
+            
+        models_to_delete = request.query_params.get('models')
+        if not models_to_delete:
+            return Response({'error': 'No models specified for deletion. Please select datasets to clear.'}, status=400)
+            
+        models_list = models_to_delete.split(',')
+        
+        try:
+            for model_str in models_list:
+                try:
+                    app_label, model_name = model_str.split('.')
+                    model = apps.get_model(app_label, model_name)
+                    model.objects.all().delete()
+                except Exception as inner_e:
+                    print(f"Skipping deletion for {model_str}: {inner_e}")
+            return Response({'status': 'Selected data cleared successfully'})
+        except Exception as e:
+            return Response({'error': str(e)}, status=400)
+
+    def post(self, request):
+        if request.user.role != 'Super Admin':
+            return Response({'error': 'Unauthorized'}, status=403)
+            
+        file_obj = request.FILES.get('backup_file')
+        if not file_obj:
+            return Response({'error': 'No file provided'}, status=400)
+            
+        try:
+            if file_obj.name.endswith('.sql'):
+                from django.conf import settings
+                db = settings.DATABASES['default']
+                
+                if 'sqlite' in db['ENGINE'].lower():
+                    import sqlite3
+                    sql_content = file_obj.read().decode('utf-8', errors='ignore')
+                    db_path = db['NAME']
+                    try:
+                        conn = sqlite3.connect(db_path)
+                        cursor = conn.cursor()
+                        cursor.execute("PRAGMA foreign_keys = OFF;")
+                        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';")
+                        tables = [row[0] for row in cursor.fetchall()]
+                        for table in tables:
+                            cursor.execute(f"DROP TABLE IF EXISTS \"{table}\";")
+                        cursor.executescript(sql_content)
+                        conn.commit()
+                        conn.close()
+                        return Response({'status': 'SQLite database restored successfully!'})
+                    except Exception as e:
+                        return Response({'error': f"SQLite restore failed: {str(e)}"}, status=400)
+                
+                import subprocess
+                import os
+                import tempfile
+                
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.sql') as tmp:
+                    # Read all, replace old Ticket table names, write to tmp
+                    sql_content = file_obj.read().decode('utf-8', errors='ignore')
+                    sql_content = sql_content.replace('public.cctv_ticket', 'public.maintenance_ticket')
+                    sql_content = sql_content.replace('INSERT INTO cctv_ticket', 'INSERT INTO maintenance_ticket')
+                    sql_content = sql_content.replace('public.cctv_ticketremark', 'public.maintenance_ticketremark')
+                    sql_content = sql_content.replace('INSERT INTO cctv_ticketremark', 'INSERT INTO maintenance_ticketremark')
+                    sql_content = sql_content.replace('public.cctv_ticketdocument', 'public.maintenance_ticketdocument')
+                    sql_content = sql_content.replace('INSERT INTO cctv_ticketdocument', 'INSERT INTO maintenance_ticketdocument')
+                    sql_content = sql_content.replace('public.cctv_ticketcompletedimage', 'public.maintenance_ticketcompletedimage')
+                    sql_content = sql_content.replace('INSERT INTO cctv_ticketcompletedimage', 'INSERT INTO maintenance_ticketcompletedimage')
+                    sql_content = sql_content.replace('"cctv_ticket"', '"maintenance_ticket"')
+                    sql_content = sql_content.replace('"cctv_ticketremark"', '"maintenance_ticketremark"')
+                    sql_content = sql_content.replace('"cctv_ticketdocument"', '"maintenance_ticketdocument"')
+                    sql_content = sql_content.replace('"cctv_ticketcompletedimage"', '"maintenance_ticketcompletedimage"')
+                    tmp.write(sql_content.encode('utf-8'))
+                    tmp_path = tmp.name
+                    
+                env = os.environ.copy()
+                if db.get('PASSWORD'):
+                    env['PGPASSWORD'] = str(db['PASSWORD'])
+                    
+                cmd = [
+                    'psql', 
+                    '-h', str(db.get('HOST', 'localhost')), 
+                    '-U', str(db.get('USER', 'postgres')), 
+                    '-d', str(db.get('NAME', 'postgres')), 
+                    '-f', tmp_path
+                ]
+                if db.get('PORT'):
+                    cmd.extend(['-p', str(db['PORT'])])
+                
+                try:
+                    result = subprocess.run(cmd, env=env, capture_output=True, text=True)
+                    os.unlink(tmp_path)
+                    if result.returncode != 0:
+                        return Response({'error': f"SQL Error: {result.stderr}"}, status=400)
+                    return Response({'status': 'SQL data imported successfully!'})
+                except FileNotFoundError:
+                    os.unlink(tmp_path)
+                    return Response({'error': 'psql command not found on the server. Please ensure PostgreSQL client tools are installed in the backend environment.'}, status=400)
+            else:
+                data = file_obj.read().decode('utf-8', errors='ignore')
+                # Map old JSON model references to new maintenance app
+                data = data.replace('"model": "cctv.ticket"', '"model": "maintenance.ticket"')
+                data = data.replace('"model": "cctv.ticketremark"', '"model": "maintenance.ticketremark"')
+                data = data.replace('"model": "cctv.ticketdocument"', '"model": "maintenance.ticketdocument"')
+                data = data.replace('"model": "cctv.ticketcompletedimage"', '"model": "maintenance.ticketcompletedimage"')
+                with transaction.atomic():
+                    for obj in serializers.deserialize('json', data):
+                        obj.save()
+                return Response({'status': 'Database restored successfully!'})
+        except Exception as e:
+            return Response({'error': f'Failed to restore database: {str(e)}'}, status=400)
+
 def check_can_edit(user, page):
     if user.role == 'Super Admin':
         return True
     return f"{page}:EDIT" in user.permissions
 
 def sync_location_to_master(college, block, floor, room, brand):
-    if college and block:
+    if block:
         try:
-            MasterLocation.objects.get_or_create(
-                collegeName=college,
-                block=block,
-                floor=floor if floor else '',
-                room=room if room else '',
-                defaults={'brand': brand}
-            )
+            from .models import Block, Floor, Room
+            b, _ = Block.objects.get_or_create(name=block)
+            if floor:
+                f, _ = Floor.objects.get_or_create(name=floor, block=b)
+                if room:
+                    Room.objects.get_or_create(name=room, block=b, floor=f)
         except Exception as e:
-            print(f"MasterLocation Registry update skipped: {str(e)}")
+            print(f"Normalized Location sync failed: {str(e)}")
 
 class CameraViewSet(viewsets.ModelViewSet):
-    queryset = Camera.objects.all()
+    queryset = Camera.objects.all().order_by('-id')
     serializer_class = CameraSerializer
     permission_classes = [IsAuthenticated]
 
@@ -151,7 +392,7 @@ class CameraViewSet(viewsets.ModelViewSet):
                     camera_data['gateway'] = gateway
                     camera_data['subnetMask'] = subnet
                     camera_data['macAddress'] = mac
-                    camera_data['collegeName'] = college
+                    camera_data['divisionName'] = college
                     camera_data['room'] = room
                     
                     # Sync to Master Location Registry
@@ -241,8 +482,50 @@ class CameraViewSet(viewsets.ModelViewSet):
         log_activity(request.user, 'DELETE', 'Cameras', f"Deleted camera ID: {kwargs.get('pk')}", request)
         return super().destroy(request, *args, **kwargs)
 
+    @action(detail=False, methods=['get'], url_path='move-history')
+    def move_history(self, request):
+        from .models import CameraRelocation, NVRRelocation, BiometricRelocation, SwitchRelocation, RackRelocation
+        history = []
+        for r in CameraRelocation.objects.select_related('camera', 'user').all():
+            history.append({
+                'id': f"cam_{r.id}", 'dbId': r.camera.id,
+                'deviceId': r.camera.cameraId, 'deviceName': r.camera.name,
+                'deviceType': 'Camera', 'remark': r.remark,
+                'timestamp': r.createdAt, 'user': r.user.name if r.user else 'System'
+            })
+        for r in NVRRelocation.objects.select_related('nvr', 'user').all():
+            history.append({
+                'id': f"nvr_{r.id}", 'dbId': r.nvr.id,
+                'deviceId': r.nvr.serialNumber, 'deviceName': r.nvr.nvrName,
+                'deviceType': 'NVR', 'remark': r.remark,
+                'timestamp': r.createdAt, 'user': r.user.name if r.user else 'System'
+            })
+        for r in BiometricRelocation.objects.select_related('biometric', 'user').all():
+            history.append({
+                'id': f"bio_{r.id}", 'dbId': r.biometric.id,
+                'deviceId': r.biometric.serialNumber, 'deviceName': r.biometric.name,
+                'deviceType': 'Biometric', 'remark': r.remark,
+                'timestamp': r.createdAt, 'user': r.user.name if r.user else 'System'
+            })
+        for r in SwitchRelocation.objects.select_related('switch', 'user').all():
+            history.append({
+                'id': f"sw_{r.id}", 'dbId': r.switch.id,
+                'deviceId': r.switch.serialNumber, 'deviceName': r.switch.name,
+                'deviceType': 'Switch', 'remark': r.remark,
+                'timestamp': r.createdAt, 'user': r.user.name if r.user else 'System'
+            })
+        for r in RackRelocation.objects.select_related('rack', 'user').all():
+            history.append({
+                'id': f"rack_{r.id}", 'dbId': r.rack.id,
+                'deviceId': r.rack.serialNumber, 'deviceName': r.rack.name,
+                'deviceType': 'Rack', 'remark': r.remark,
+                'timestamp': r.createdAt, 'user': r.user.name if r.user else 'System'
+            })
+        history.sort(key=lambda x: x['timestamp'], reverse=True)
+        return Response(history)
+
 class NVRViewSet(viewsets.ModelViewSet):
-    queryset = NVR.objects.all()
+    queryset = NVR.objects.all().order_by('-id')
     serializer_class = NVRSerializer
     permission_classes = [IsAuthenticated]
 
@@ -293,7 +576,7 @@ class NVRViewSet(viewsets.ModelViewSet):
                         'hardDisk': data.get('hard disk') or data.get('harddisk'),
                         'channel': data.get('channel'),
                         'status': data.get('status') or 'Online',
-                        'collegeName': college,
+                        'divisionName': college,
                         'block': block,
                         'floor': floor,
                         'room': room,
@@ -389,7 +672,7 @@ class NVRViewSet(viewsets.ModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
 class BiometricViewSet(viewsets.ModelViewSet):
-    queryset = Biometric.objects.all()
+    queryset = Biometric.objects.all().order_by('-id')
     serializer_class = BiometricSerializer
     permission_classes = [IsAuthenticated]
 
@@ -440,7 +723,7 @@ class BiometricViewSet(viewsets.ModelViewSet):
                         'ipAddress': data.get('ip address') or data.get('ipaddress'),
                         'serverIp': data.get('server ip') or data.get('serverip'),
                         'status': data.get('status') or 'Online',
-                        'collegeName': college,
+                        'divisionName': college,
                         'block': block,
                         'floor': floor,
                         'room': room,
@@ -536,7 +819,7 @@ class BiometricViewSet(viewsets.ModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
 class BarrierViewSet(viewsets.ModelViewSet):
-    queryset = Barrier.objects.all()
+    queryset = Barrier.objects.all().order_by('-id')
     serializer_class = BarrierSerializer
     permission_classes = [IsAuthenticated]
 
@@ -556,7 +839,7 @@ class BarrierViewSet(viewsets.ModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
 class NetworkSwitchViewSet(viewsets.ModelViewSet):
-    queryset = NetworkSwitch.objects.all()
+    queryset = NetworkSwitch.objects.all().order_by('-id')
     serializer_class = NetworkSwitchSerializer
     permission_classes = [IsAuthenticated]
 
@@ -607,7 +890,7 @@ class NetworkSwitchViewSet(viewsets.ModelViewSet):
                         'model': data.get('model'),
                         'portCount': data.get('port count') or data.get('portcount'),
                         'status': data.get('status') or 'Online',
-                        'collegeName': college,
+                        'divisionName': college,
                         'block': block,
                         'floor': floor,
                         'room': room,
@@ -751,39 +1034,177 @@ class ActivityLogViewSet(viewsets.ModelViewSet):
         log_activity(request.user, action, page, details, request)
         return Response({'status': 'logged'})
 
-class MasterLocationViewSet(viewsets.ModelViewSet):
-    queryset = MasterLocation.objects.all()
-    serializer_class = MasterLocationSerializer
+class LocationViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
 
-    def get_queryset(self):
-        return MasterLocation.objects.all().order_by('collegeName', 'block')
-
-    def perform_create(self, serializer):
-        serializer.save()
-        log_activity(self.request.user, 'CREATE', 'Location', f"Added master location: {self.request.data.get('collegeName')}", self.request)
-
-    def perform_update(self, serializer):
-        instance = serializer.save()
-        log_activity(self.request.user, 'EDIT', 'Location', f"Updated master location: {instance.collegeName}", self.request)
-
-    def perform_destroy(self, instance):
-        log_activity(self.request.user, 'DELETE', 'Location', f"Deleted master location: {instance.collegeName} {instance.block}", self.request)
+    def list(self, request):
+        from .models import Block, Floor, Room, GlobalSiteConfig
         
-        college = instance.collegeName
-        block = instance.block
-        floor = instance.floor
-        room = instance.room
+        default_division = ''
+        try:
+            site = GlobalSiteConfig.objects.first()
+            if site: default_division = site.divisionName
+        except: pass
+
+        locations = []
+        blocks = Block.objects.all()
+        idx = 1
         
-        if not floor and not room:
-            # Deleting a Block -> Delete block, all its floors, and all its rooms
-            MasterLocation.objects.filter(collegeName=college, block=block).delete()
-        elif not room:
-            # Deleting a Floor -> Delete the floor and all its rooms
-            MasterLocation.objects.filter(collegeName=college, block=block, floor=floor).delete()
-        else:
-            # Deleting a specific Room
-            instance.delete()
+        for b in blocks:
+            floors = Floor.objects.filter(block=b)
+            if not floors.exists():
+                locations.append({ 'id': f"b-{b.id}", 'divisionName': default_division, 'block': b.name, 'floor': '', 'room': '' })
+            else:
+                for f in floors:
+                    rooms = Room.objects.filter(floor=f)
+                    if not rooms.exists():
+                        locations.append({ 'id': f"f-{f.id}", 'divisionName': default_division, 'block': b.name, 'floor': f.name, 'room': '' })
+                    else:
+                        for r in rooms:
+                            locations.append({ 'id': f"r-{r.id}", 'divisionName': default_division, 'block': b.name, 'floor': f.name, 'room': r.name })
+                            
+        return Response(locations)
+
+    def create(self, request):
+        from .models import Block, Floor, Room
+        block_name = request.data.get('block', '').strip().upper()
+        floor_name = request.data.get('floor', '').strip().upper()
+        room_name = request.data.get('room', '').strip().upper()
+        
+        if not block_name:
+            return Response({'message': 'Block name is required'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        try:
+            b, b_created = Block.objects.get_or_create(name=block_name)
+            if not b_created and not floor_name and not room_name:
+                return Response({'message': f'Duplicate Block: {block_name} already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+                
+            msg = f"Added block {block_name}"
+            
+            if floor_name:
+                f, f_created = Floor.objects.get_or_create(name=floor_name, block=b)
+                if not f_created and not room_name:
+                    return Response({'message': f'Duplicate Floor: {floor_name} already exists in {block_name}.'}, status=status.HTTP_400_BAD_REQUEST)
+                msg += f", floor {floor_name}"
+                if room_name:
+                    r, r_created = Room.objects.get_or_create(name=room_name, block=b, floor=f)
+                    if not r_created:
+                        return Response({'message': f'Duplicate Room: {room_name} already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+                    msg += f", room {room_name}"
+            
+            log_activity(request.user, 'CREATE', 'Location', msg, request)
+            return Response({'message': 'Location saved'})
+        except Exception as e:
+            log_activity(request.user, 'ERROR', 'Location', f"Save failed: {str(e)}", request)
+            return Response({'message': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    def destroy(self, request, pk=None):
+        from .models import Block, Floor, Room, Camera, NVR, Biometric, NetworkSwitch
+        # pk format: b-1, f-2, r-3 or legacy-...
+        if not pk:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+            
+        parts = pk.split('-')
+        prefix = parts[0]
+        db_id = parts[1] if len(parts) > 1 else None
+
+        if prefix == 'legacy':
+            return Response({'message': 'Cannot delete legacy locations. Please reassign the devices first.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check for devices in this location
+        def has_devices(block_name=None, floor_name=None, room_name=None):
+            for model in [Camera, NVR, Biometric, NetworkSwitch]:
+                qs = model.objects.all()
+                if block_name: qs = qs.filter(block__iexact=block_name)
+                if floor_name: qs = qs.filter(floor__iexact=floor_name)
+                if room_name: qs = qs.filter(room__iexact=room_name)
+                if qs.exists(): return True
+            return False
+
+        if prefix == 'b':
+            block = Block.objects.filter(id=db_id).first()
+            if block and has_devices(block_name=block.name):
+                return Response({'message': f'Cannot delete Block {block.name}: Devices are still assigned to it.'}, status=status.HTTP_400_BAD_REQUEST)
+            if block: block.delete()
+        elif prefix == 'f':
+            floor = Floor.objects.filter(id=db_id).first()
+            if floor and has_devices(block_name=floor.block.name, floor_name=floor.name):
+                return Response({'message': f'Cannot delete Floor {floor.name}: Devices are still assigned to it.'}, status=status.HTTP_400_BAD_REQUEST)
+            if floor: floor.delete()
+        elif prefix == 'r':
+            room = Room.objects.filter(id=db_id).first()
+            if room and has_devices(block_name=room.block.name, floor_name=room.floor.name, room_name=room.name):
+                return Response({'message': f'Cannot delete Room {room.name}: Devices are still assigned to it.'}, status=status.HTTP_400_BAD_REQUEST)
+            if room: room.delete()
+            
+        return Response({'message': 'Location deleted'})
+
+    @action(detail=False, methods=['post'])
+    def upload_excel(self, request):
+        # We restore the CSV upload functionality using native tables
+        if request.user.role not in ['Super Admin', 'Admin']:
+            return Response({'message': 'Not authorized'}, status=status.HTTP_403_FORBIDDEN)
+        
+        file_obj = request.FILES.get('file')
+        if not file_obj:
+            return Response({'message': 'No file uploaded'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        try:
+            if file_obj.name.endswith('.xlsx') or file_obj.name.endswith('.xls'):
+                import openpyxl
+                wb = openpyxl.load_workbook(file_obj)
+                ws = wb.active
+                headers = [str(cell.value).strip().lower() if cell.value else "" for cell in ws[1]]
+                rows_data = [dict(zip(headers, row)) for row in ws.iter_rows(min_row=2, values_only=True) if any(row)]
+            elif file_obj.name.endswith('.csv'):
+                import csv
+                decoded_file = file_obj.read().decode('utf-8').splitlines()
+                reader = csv.DictReader(decoded_file)
+                rows_data = [{k.lower(): v for k, v in row.items()} for row in reader]
+            else:
+                return Response({'message': 'Unsupported format'}, status=status.HTTP_400_BAD_REQUEST)
+
+            from .models import Block, Floor, Room
+            created_count = 0
+            skipped_count = 0
+            with transaction.atomic():
+                for data in rows_data:
+                    block = (data.get('block') or '').strip().upper()
+                    floor = (data.get('floor') or '').strip().upper()
+                    room = (data.get('room') or '').strip().upper()
+                    
+                    if not block: continue
+                    
+                    b, created_b = Block.objects.get_or_create(name=block)
+                    if created_b: 
+                        created_count += 1
+                    else:
+                        skipped_count += 1
+                        
+                    if floor:
+                        f, created_f = Floor.objects.get_or_create(name=floor, block=b)
+                        if created_f: 
+                            created_count += 1
+                        else:
+                            skipped_count += 1
+                            
+                        if room:
+                            r, created_r = Room.objects.get_or_create(name=room, block=b, floor=f)
+                            if created_r: 
+                                created_count += 1
+                            else:
+                                skipped_count += 1
+            
+            log_message = f"Uploaded {file_obj.name}. Created {created_count} new entries."
+            if skipped_count > 0:
+                log_message += f" Skipped {skipped_count} duplicate entries."
+                
+            log_activity(request.user, 'UPLOAD', 'Location', log_message, request)
+            return Response({'message': 'Import Complete', 'created': created_count, 'skipped': skipped_count}, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            log_activity(request.user, 'ERROR', 'Location', f"Upload failed: {str(e)}", request)
+            return Response({'message': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
 
 class GlobalSiteConfigViewSet(viewsets.ModelViewSet):
     queryset = GlobalSiteConfig.objects.all()
@@ -809,30 +1230,10 @@ class GlobalSiteConfigViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         
-        log_activity(request.user, 'CONFIG_UPDATE', 'Global', f"Updated global site config: {config.collegeName}", request)
+        log_activity(request.user, 'CONFIG_UPDATE', 'Global', f"Updated global site config: {config.divisionName}", request)
         
-        # Also ensure it exists in MasterLocation registry
-        try:
-            if config.collegeName and config.block:
-                MasterLocation.objects.update_or_create(
-                    collegeName=config.collegeName,
-                    block=config.block,
-                    floor=config.floor if config.floor else '',
-                    room=config.room if config.room else '',
-                    defaults={
-                        'brand': config.brand,
-                        'assignedTo': config.assignedTo
-                    }
-                )
-        except Exception as e:
-            print(f"MasterLocation Registry update skipped: {str(e)}")
-            
         return Response(serializer.data)
 
-    @action(detail=False, methods=['get'])
-    def all_locations(self, request):
-        locations = MasterLocation.objects.all().order_by('collegeName', 'block')
-        return Response(MasterLocationSerializer(locations, many=True).data)
 
     @action(detail=False, methods=['get'])
     def dashboard_stats(self, request):
@@ -868,13 +1269,13 @@ class GlobalSiteConfigViewSet(viewsets.ModelViewSet):
                 'project': Ticket.objects.filter(category__icontains='Project').count(),
             },
             'distribution': [
-                {'name': c['collegeName'] or 'Unassigned', 'count': c['count']}
-                for c in Camera.objects.values('collegeName').annotate(count=Count('id'))
+                {'name': c['divisionName'] or 'Unassigned', 'count': c['count']}
+                for c in Camera.objects.values('divisionName').annotate(count=Count('id'))
             ]
         })
 
 class RackViewSet(viewsets.ModelViewSet):
-    queryset = Rack.objects.all()
+    queryset = Rack.objects.all().order_by('-id')
     serializer_class = RackSerializer
     permission_classes = [IsAuthenticated]
 
@@ -882,7 +1283,11 @@ class RackViewSet(viewsets.ModelViewSet):
         if request.user.role not in ['Super Admin', 'Admin'] and not check_can_edit(request.user, 'Racks'):
             return Response({'message': 'Not authorized'}, status=status.HTTP_403_FORBIDDEN)
         response = super().create(request, *args, **kwargs)
-        log_activity(request.user, 'CREATE', 'Racks', f"Created Rack: {request.data.get('name')}", request)
+        rack_name = request.data.get('name', 'Unknown')
+        serial_no = request.data.get('serialNumber', '')
+        details_str = f"Created Rack: {rack_name}"
+        if serial_no: details_str += f" (Asset: {serial_no})"
+        log_activity(request.user, 'CREATE', 'Racks', details_str, request)
         return response
 
     @action(detail=True, methods=['post'])
@@ -932,7 +1337,9 @@ class RackViewSet(viewsets.ModelViewSet):
                     user=request.user
                 )
             else:
-                log_activity(request.user, 'EDIT', 'Racks', f"Updated Rack: {instance.name}", request)
+                details_str = f"Updated Rack: {instance.name}"
+                if instance.serialNumber: details_str += f" (Asset: {instance.serialNumber})"
+                log_activity(request.user, 'EDIT', 'Racks', details_str, request)
                 
         return response
 
@@ -950,62 +1357,121 @@ class RackRemarkViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
 
-class OccupationViewSet(viewsets.ModelViewSet):
-    queryset = Occupation.objects.all().order_by('-createdAt')
-    serializer_class = OccupationSerializer
+class DivisionViewSet(viewsets.ModelViewSet):
+    queryset = Division.objects.all().order_by('-createdAt')
+    serializer_class = DivisionSerializer
     permission_classes = [IsAuthenticated]
+
+    def create(self, request, *args, **kwargs):
+        data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
+        if 'name' in data and data['name']:
+            data['name'] = str(data['name']).strip().upper()
+        serializer = self.get_serializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
+        if 'name' in data and data['name']:
+            data['name'] = str(data['name']).strip().upper()
+        serializer = self.get_serializer(instance, data=data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response(serializer.data)
 
     def perform_create(self, serializer):
         serializer.save()
-        log_activity(self.request.user, 'CREATE', 'Occupation', f"Created occupation: {self.request.data.get('name')}", self.request)
+        log_activity(self.request.user, 'CREATE', 'Division', f"Created division: {self.request.data.get('name')}", self.request)
 
     def perform_update(self, serializer):
         instance = serializer.save()
-        log_activity(self.request.user, 'EDIT', 'Occupation', f"Updated occupation: {instance.name}", self.request)
+        log_activity(self.request.user, 'EDIT', 'Division', f"Updated division: {instance.name}", self.request)
 
     def perform_destroy(self, instance):
-        log_activity(self.request.user, 'DELETE', 'Occupation', f"Deleted occupation: {instance.name}", self.request)
+        log_activity(self.request.user, 'DELETE', 'Division', f"Deleted division: {instance.name}", self.request)
         instance.delete()
 
     @action(detail=False, methods=['post'])
     def merge(self, request):
         old_names = request.data.get('old_names', [])
         new_name = request.data.get('new_name')
-        occupation_type = request.data.get('occupation_type', 'College')
+        division_type = request.data.get('division_type', 'College')
 
         if not old_names or not new_name:
             return Response({"error": "old_names and new_name are required."}, status=status.HTTP_400_BAD_REQUEST)
 
         with transaction.atomic():
-            # Create or update the master occupation
-            occupation, created = Occupation.objects.get_or_create(
+            # Create or update the master division
+            division, created = Division.objects.get_or_create(
                 name=new_name,
-                defaults={'occupation_type': occupation_type}
+                defaults={'division_type': division_type}
             )
             
             # Store merged legacy names
-            existing_merged = occupation.merged_from if occupation.merged_from else []
+            existing_merged = division.merged_from if division.merged_from else []
             merged_set = set(existing_merged)
             merged_set.update(old_names)
-            occupation.merged_from = list(merged_set)
-            occupation.save()
+            division.merged_from = list(merged_set)
+            division.save()
 
             # Update all standard CCTV devices
-            Camera.objects.filter(collegeName__in=old_names).update(collegeName=new_name)
-            NVR.objects.filter(collegeName__in=old_names).update(collegeName=new_name)
-            Biometric.objects.filter(collegeName__in=old_names).update(collegeName=new_name)
-            NetworkSwitch.objects.filter(collegeName__in=old_names).update(collegeName=new_name)
-            Rack.objects.filter(collegeName__in=old_names).update(collegeName=new_name)
+            Camera.objects.filter(divisionName__in=old_names).update(divisionName=new_name)
+            NVR.objects.filter(divisionName__in=old_names).update(divisionName=new_name)
+            Biometric.objects.filter(divisionName__in=old_names).update(divisionName=new_name)
+            NetworkSwitch.objects.filter(divisionName__in=old_names).update(divisionName=new_name)
+            Rack.objects.filter(divisionName__in=old_names).update(divisionName=new_name)
 
             # Update Tickets in maintenance app
             try:
                 from maintenance.models import Ticket
-                Ticket.objects.filter(collegeName__in=old_names).update(collegeName=new_name)
+                Ticket.objects.filter(divisionName__in=old_names).update(divisionName=new_name)
             except ImportError:
                 pass # Maintenance app might not be installed or available
 
-            # (User requested to KEEP the old occupations A and B in the registry after merging)
-            # Occupation.objects.filter(name__in=old_names).exclude(name=new_name).delete()
+            # (User requested to KEEP the old divisions A and B in the registry after merging)
+            # Division.objects.filter(name__in=old_names).exclude(name=new_name).delete()
 
-        log_activity(request.user, 'MERGE', 'Occupation', f"Merged {len(old_names)} legacy colleges into {new_name}", request)
+        log_activity(request.user, 'MERGE', 'Division', f"Merged {len(old_names)} legacy colleges into {new_name}", request)
         return Response({"message": "Successfully merged colleges.", "new_name": new_name}, status=status.HTTP_200_OK)
+
+class BrandViewSet(viewsets.ModelViewSet):
+    queryset = Brand.objects.all().order_by('-createdAt')
+    serializer_class = BrandSerializer
+    permission_classes = [IsAuthenticated]
+
+    def create(self, request, *args, **kwargs):
+        data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
+        if 'name' in data and data['name']:
+            data['name'] = str(data['name']).strip().upper()
+        serializer = self.get_serializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
+        if 'name' in data and data['name']:
+            data['name'] = str(data['name']).strip().upper()
+        serializer = self.get_serializer(instance, data=data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response(serializer.data)
+
+    def perform_create(self, serializer):
+        serializer.save()
+        log_activity(self.request.user, 'CREATE', 'Brand', f"Created brand: {self.request.data.get('name')}", self.request)
+
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        log_activity(self.request.user, 'EDIT', 'Brand', f"Updated brand: {instance.name}", self.request)
+
+    def perform_destroy(self, instance):
+        log_activity(self.request.user, 'DELETE', 'Brand', f"Deleted brand: {instance.name}", self.request)
+        instance.delete()

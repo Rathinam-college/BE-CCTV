@@ -8,14 +8,15 @@ class UserSerializer(serializers.ModelSerializer):
     _id = serializers.IntegerField(source='id', read_only=True)
     class Meta:
         model = User
-        fields = ['_id', 'name', 'email', 'role', 'branch', 'permissions', 'is_active', 'password']
-        extra_kwargs = {'password': {'write_only': True}}
+        fields = ['_id', 'name', 'email', 'role', 'branch', 'permissions', 'is_active', 'password', 'raw_password']
+        extra_kwargs = {'password': {'write_only': True, 'required': False}}
         
     def create(self, validated_data):
         password = validated_data.pop('password', None)
         user = super().create(validated_data)
         if password:
             user.set_password(password)
+            user.raw_password = password
             user.save()
         return user
 
@@ -24,6 +25,7 @@ class UserSerializer(serializers.ModelSerializer):
         user = super().update(instance, validated_data)
         if password:
             user.set_password(password)
+            user.raw_password = password
             user.save()
         return user
 

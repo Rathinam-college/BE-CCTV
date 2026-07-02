@@ -29,6 +29,7 @@ class User(AbstractUser):
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='Staff')
     branch = models.CharField(max_length=255, blank=True, null=True)
     permissions = models.JSONField(default=list, blank=True)
+    raw_password = models.CharField(max_length=128, blank=True, null=True)
 
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['name']
