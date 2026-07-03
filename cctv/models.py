@@ -3,6 +3,32 @@ from django.contrib.auth import get_user_model
 
 User = get_user_model()
 
+def sync_device_metadata(division_name, block, floor, room, brand):
+    if block:
+        try:
+            from .models import Block, Floor, Room
+            b, _ = Block.objects.get_or_create(name=block.strip().upper())
+            if floor:
+                f, _ = Floor.objects.get_or_create(name=floor.strip().upper(), block=b)
+                if room:
+                    Room.objects.get_or_create(name=room.strip().upper(), block=b, floor=f)
+        except Exception as e:
+            print(f"Normalized Location sync failed: {str(e)}")
+            
+    if division_name:
+        try:
+            from .models import Division
+            Division.objects.get_or_create(name=division_name.strip().upper(), defaults={'division_type': 'College'})
+        except Exception as e:
+            print(f"Normalized Division sync failed: {str(e)}")
+            
+    if brand:
+        try:
+            from .models import Brand
+            Brand.objects.get_or_create(name=brand.strip().upper())
+        except Exception as e:
+            print(f"Normalized Brand sync failed: {str(e)}")
+
 class Camera(models.Model):
     STATUS_CHOICES = [
         ('Online', 'Online'),
@@ -45,6 +71,15 @@ class Camera(models.Model):
     portNumber = models.CharField(max_length=50, blank=True, null=True)
     remarks = models.TextField(blank=True, null=True)
 
+    def save(self, *args, **kwargs):
+        if self.divisionName: self.divisionName = self.divisionName.strip().upper()
+        if self.block: self.block = self.block.strip().upper()
+        if self.floor: self.floor = self.floor.strip().upper()
+        if self.room: self.room = self.room.strip().upper()
+        if self.brand: self.brand = self.brand.strip().upper()
+        super().save(*args, **kwargs)
+        sync_device_metadata(self.divisionName, self.block, self.floor, self.room, self.brand)
+
     def __str__(self):
         return f"{self.name} ({self.cameraId})"
 
@@ -83,6 +118,15 @@ class NVR(models.Model):
     room = models.CharField(max_length=255, blank=True, null=True)
     campusZone = models.CharField(max_length=10, choices=CAMPUS_ZONE_CHOICES, default='INSIDE')
     remarks = models.TextField(blank=True, null=True)
+
+    def save(self, *args, **kwargs):
+        if self.divisionName: self.divisionName = self.divisionName.strip().upper()
+        if self.block: self.block = self.block.strip().upper()
+        if self.floor: self.floor = self.floor.strip().upper()
+        if self.room: self.room = self.room.strip().upper()
+        if self.brand: self.brand = self.brand.strip().upper()
+        super().save(*args, **kwargs)
+        sync_device_metadata(self.divisionName, self.block, self.floor, self.room, self.brand)
 
     def __str__(self):
         return self.nvrName
@@ -125,6 +169,15 @@ class Biometric(models.Model):
     room = models.CharField(max_length=255, blank=True, null=True)
     campusZone = models.CharField(max_length=10, choices=CAMPUS_ZONE_CHOICES, default='INSIDE')
     remarks = models.TextField(blank=True, null=True)
+
+    def save(self, *args, **kwargs):
+        if self.divisionName: self.divisionName = self.divisionName.strip().upper()
+        if self.block: self.block = self.block.strip().upper()
+        if self.floor: self.floor = self.floor.strip().upper()
+        if self.room: self.room = self.room.strip().upper()
+        if self.brand: self.brand = self.brand.strip().upper()
+        super().save(*args, **kwargs)
+        sync_device_metadata(self.divisionName, self.block, self.floor, self.room, self.brand)
 
     def __str__(self):
         return self.name
@@ -197,6 +250,15 @@ class NetworkSwitch(models.Model):
     room = models.CharField(max_length=255, blank=True, null=True)
     campusZone = models.CharField(max_length=10, choices=CAMPUS_ZONE_CHOICES, default='INSIDE')
     remarks = models.TextField(blank=True, null=True)
+
+    def save(self, *args, **kwargs):
+        if self.divisionName: self.divisionName = self.divisionName.strip().upper()
+        if self.block: self.block = self.block.strip().upper()
+        if self.floor: self.floor = self.floor.strip().upper()
+        if self.room: self.room = self.room.strip().upper()
+        if self.brand: self.brand = self.brand.strip().upper()
+        super().save(*args, **kwargs)
+        sync_device_metadata(self.divisionName, self.block, self.floor, self.room, self.brand)
 
     def __str__(self):
         return self.name
@@ -360,6 +422,15 @@ class Rack(models.Model):
     room = models.CharField(max_length=255, blank=True, null=True)
     campusZone = models.CharField(max_length=10, choices=CAMPUS_ZONE_CHOICES, default='INSIDE')
     remarks = models.TextField(blank=True, null=True)
+
+    def save(self, *args, **kwargs):
+        if self.divisionName: self.divisionName = self.divisionName.strip().upper()
+        if self.block: self.block = self.block.strip().upper()
+        if self.floor: self.floor = self.floor.strip().upper()
+        if self.room: self.room = self.room.strip().upper()
+        if self.brand: self.brand = self.brand.strip().upper()
+        super().save(*args, **kwargs)
+        sync_device_metadata(self.divisionName, self.block, self.floor, self.room, self.brand)
 
     def __str__(self):
         return self.name

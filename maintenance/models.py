@@ -100,6 +100,30 @@ class Ticket(models.Model):
     createdAt = models.DateTimeField(auto_now_add=True)
     updatedAt = models.DateTimeField(auto_now=True)
 
+    def save(self, *args, **kwargs):
+        from django.utils import timezone
+        today = timezone.now().date()
+        
+        if not self.operationDate:
+            self.operationDate = today
+            
+        if not self.receivedDate:
+            self.receivedDate = today
+            
+        if not self.createdDate:
+            self.createdDate = today
+            
+        if self.status == 'In Progress' and not self.inProgressDate:
+            self.inProgressDate = today
+            
+        if self.status == 'Completed':
+            if not self.inProgressDate:
+                self.inProgressDate = self.createdDate or today
+            if not self.completedDate:
+                self.completedDate = today
+                
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return f"Ticket {self.id} - {self.status}"
 
@@ -164,6 +188,12 @@ class GeneralBillingInfo(models.Model):
     po_document = models.FileField(upload_to='maintenance/general/pos/', blank=True, null=True)
     
     createdAt = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        from django.utils import timezone
+        if not self.bill_date:
+            self.bill_date = timezone.now().date()
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.work

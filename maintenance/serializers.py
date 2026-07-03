@@ -1,4 +1,17 @@
 from rest_framework import serializers
+
+class DateCleanupMixin:
+    def to_internal_value(self, data):
+        if hasattr(data, 'copy'):
+            data = data.copy()
+        elif isinstance(data, dict):
+            data = dict(data)
+            
+        for field_name, field in self.fields.items():
+            if isinstance(field, (serializers.DateField, serializers.DateTimeField)):
+                if field_name in data and data[field_name] in ['', 'null', 'None']:
+                    data[field_name] = None
+        return super().to_internal_value(data)
 from .models import Ticket, Project, TicketRemark, ProjectDocument, TicketDocument, GeneralBillingInfo, GeneralBillingDocument, TicketBillingRecord, ProjectBillingRecord
 from users.serializers import UserSerializer
 from cctv.serializers import CameraSerializer
@@ -51,7 +64,7 @@ class TicketBillingRecordSerializer(serializers.ModelSerializer):
         from .utils import compress_file
         return compress_file(value)
 
-class ProjectSerializer(serializers.ModelSerializer):
+class ProjectSerializer(DateCleanupMixin, serializers.ModelSerializer):
     _id = serializers.IntegerField(source='id', read_only=True)
     ticket_count = serializers.SerializerMethodField()
     documents = ProjectDocumentSerializer(many=True, read_only=True)
@@ -74,7 +87,7 @@ class TicketRemarkSerializer(serializers.ModelSerializer):
         from .utils import compress_file
         return compress_file(value)
 
-class TicketSerializer(serializers.ModelSerializer):
+class TicketSerializer(DateCleanupMixin, serializers.ModelSerializer):
     _id = serializers.IntegerField(source='id', read_only=True)
     documents = TicketDocumentSerializer(many=True, read_only=True)
     completed_images = TicketCompletedImageSerializer(many=True, read_only=True)
@@ -132,7 +145,7 @@ class GeneralBillingDocumentSerializer(serializers.ModelSerializer):
         from .utils import compress_file
         return compress_file(value)
 
-class GeneralBillingInfoSerializer(serializers.ModelSerializer):
+class GeneralBillingInfoSerializer(DateCleanupMixin, serializers.ModelSerializer):
     _id = serializers.IntegerField(source='id', read_only=True)
     documents = GeneralBillingDocumentSerializer(many=True, read_only=True)
     

@@ -1,4 +1,17 @@
 from rest_framework import serializers
+
+class DateCleanupMixin:
+    def to_internal_value(self, data):
+        if hasattr(data, 'copy'):
+            data = data.copy()
+        elif isinstance(data, dict):
+            data = dict(data)
+            
+        for field_name, field in self.fields.items():
+            if isinstance(field, (serializers.DateField, serializers.DateTimeField)):
+                if field_name in data and data[field_name] in ['', 'null', 'None']:
+                    data[field_name] = None
+        return super().to_internal_value(data)
 from .models import (
     Camera, NVR, Biometric, Barrier, NetworkSwitch, ActivityLog, 
     CameraRemark, NVRRemark, BiometricRemark, SwitchRemark,
@@ -19,7 +32,7 @@ class CameraRemarkSerializer(serializers.ModelSerializer):
         model = CameraRemark
         fields = ['id', 'remark', 'device_status', 'date', 'time', 'userName', 'createdAt']
 
-class CameraSerializer(serializers.ModelSerializer):
+class CameraSerializer(DateCleanupMixin, serializers.ModelSerializer):
     _id = serializers.IntegerField(source='id', read_only=True)
     message_history = CameraRemarkSerializer(many=True, read_only=True)
     relocations = CameraRelocationSerializer(many=True, read_only=True)
@@ -39,7 +52,7 @@ class NVRRemarkSerializer(serializers.ModelSerializer):
         model = NVRRemark
         fields = ['id', 'remark', 'device_status', 'date', 'time', 'userName', 'createdAt']
 
-class NVRSerializer(serializers.ModelSerializer):
+class NVRSerializer(DateCleanupMixin, serializers.ModelSerializer):
     _id = serializers.IntegerField(source='id', read_only=True)
     message_history = NVRRemarkSerializer(many=True, read_only=True)
     relocations = NVRRelocationSerializer(many=True, read_only=True)
@@ -59,7 +72,7 @@ class BiometricRemarkSerializer(serializers.ModelSerializer):
         model = BiometricRemark
         fields = ['id', 'remark', 'device_status', 'date', 'time', 'userName', 'createdAt']
 
-class BiometricSerializer(serializers.ModelSerializer):
+class BiometricSerializer(DateCleanupMixin, serializers.ModelSerializer):
     _id = serializers.IntegerField(source='id', read_only=True)
     message_history = BiometricRemarkSerializer(many=True, read_only=True)
     relocations = BiometricRelocationSerializer(many=True, read_only=True)
@@ -85,7 +98,7 @@ class SwitchRemarkSerializer(serializers.ModelSerializer):
         model = SwitchRemark
         fields = ['id', 'remark', 'device_status', 'date', 'time', 'userName', 'createdAt']
 
-class NetworkSwitchSerializer(serializers.ModelSerializer):
+class NetworkSwitchSerializer(DateCleanupMixin, serializers.ModelSerializer):
     _id = serializers.IntegerField(source='id', read_only=True)
     message_history = SwitchRemarkSerializer(many=True, read_only=True)
     relocations = SwitchRelocationSerializer(many=True, read_only=True)
@@ -105,7 +118,7 @@ class RackRemarkSerializer(serializers.ModelSerializer):
         model = RackRemark
         fields = ['id', 'remark', 'device_status', 'date', 'time', 'userName', 'createdAt']
 
-class RackSerializer(serializers.ModelSerializer):
+class RackSerializer(DateCleanupMixin, serializers.ModelSerializer):
     _id = serializers.IntegerField(source='id', read_only=True)
     message_history = RackRemarkSerializer(many=True, read_only=True)
     relocations = RackRelocationSerializer(many=True, read_only=True)
