@@ -62,6 +62,7 @@ class Ticket(models.Model):
     room = models.CharField(max_length=255, blank=True, null=True)
     location = models.CharField(max_length=255, null=True, blank=True) # Legacy display field
     category = models.CharField(max_length=100, null=True, blank=True)
+    ticketDevice = models.CharField(max_length=100, null=True, blank=True)
     actionTaken = models.TextField(null=True, blank=True)
     instructionBy = models.CharField(max_length=255, null=True, blank=True)
     receivedDate = models.DateField(null=True, blank=True)
