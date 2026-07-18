@@ -134,17 +134,19 @@ class TicketViewSet(viewsets.ModelViewSet):
             with connection.cursor() as cursor:
                 cursor.execute('SELECT "createdVideo" FROM "maintenance_ticket" LIMIT 1;')
                 cursor.execute('SELECT "receivedDate" FROM "maintenance_ticket" LIMIT 1;')
+                cursor.execute('SELECT "raisedByName" FROM "maintenance_ticket" LIMIT 1;')
+                cursor.execute('SELECT "ticketDevice" FROM "maintenance_ticket" LIMIT 1;')
                 cursor.execute('SELECT 1 FROM "maintenance_ticket_assignedStaff" LIMIT 1;')
         except Exception:
             connection.rollback()
             statements = [
                 'ALTER TABLE "maintenance_ticket" ADD COLUMN IF NOT EXISTS "createdVideo" varchar(100) NULL;',
                 'ALTER TABLE "maintenance_ticket" ADD COLUMN IF NOT EXISTS "receivedDate" date NULL;',
+                'ALTER TABLE "maintenance_ticket" ADD COLUMN IF NOT EXISTS "raisedByName" varchar(255) NULL;',
+                'ALTER TABLE "maintenance_ticket" ADD COLUMN IF NOT EXISTS "ticketDevice" varchar(100) NULL;',
                 'ALTER TABLE "maintenance_ticket" ADD COLUMN IF NOT EXISTS "inProgressVideo" varchar(100) NULL;',
                 'ALTER TABLE "maintenance_ticket" ADD COLUMN IF NOT EXISTS "completedVideo" varchar(100) NULL;',
-                'DROP TABLE IF EXISTS "maintenance_ticket_assignedstaff" CASCADE;',
-                'DROP TABLE IF EXISTS "maintenance_ticket_assignedStaff" CASCADE;',
-                '''CREATE TABLE "maintenance_ticket_assignedStaff" (
+                '''CREATE TABLE IF NOT EXISTS "maintenance_ticket_assignedStaff" (
                     "id" bigserial NOT NULL PRIMARY KEY,
                     "ticket_id" bigint NOT NULL REFERENCES "maintenance_ticket" ("id") DEFERRABLE INITIALLY DEFERRED,
                     "user_id" bigint NOT NULL REFERENCES "users_user" ("id") DEFERRABLE INITIALLY DEFERRED,

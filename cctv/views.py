@@ -1041,10 +1041,24 @@ class LocationViewSet(viewsets.ViewSet):
         from .models import Block, Floor, Room, GlobalSiteConfig
         
         default_division = ''
+        default_assignee = None
         try:
             site = GlobalSiteConfig.objects.first()
-            if site: default_division = site.divisionName
-        except: pass
+            if not site:
+                from users.models import User
+                default_user = User.objects.filter(name='Karthik K N').first() or User.objects.filter(role='Super Admin').first() or User.objects.first()
+                if default_user:
+                    site = GlobalSiteConfig.objects.create(
+                        divisionName='RGI',
+                        assignedTo=default_user
+                    )
+            if site:
+                default_division = site.divisionName or ''
+                if site.assignedTo:
+                    from users.serializers import UserSerializer
+                    default_assignee = UserSerializer(site.assignedTo).data
+        except Exception as e:
+            print("Error initializing GlobalSiteConfig:", e)
 
         locations = []
         blocks = Block.objects.all()
@@ -1053,15 +1067,15 @@ class LocationViewSet(viewsets.ViewSet):
         for b in blocks:
             floors = Floor.objects.filter(block=b)
             if not floors.exists():
-                locations.append({ 'id': f"b-{b.id}", 'divisionName': default_division, 'block': b.name, 'floor': '', 'room': '' })
+                locations.append({ 'id': f"b-{b.id}", 'divisionName': default_division, 'block': b.name, 'floor': '', 'room': '', 'assignedTo': default_assignee })
             else:
                 for f in floors:
                     rooms = Room.objects.filter(floor=f)
                     if not rooms.exists():
-                        locations.append({ 'id': f"f-{f.id}", 'divisionName': default_division, 'block': b.name, 'floor': f.name, 'room': '' })
+                        locations.append({ 'id': f"f-{f.id}", 'divisionName': default_division, 'block': b.name, 'floor': f.name, 'room': '', 'assignedTo': default_assignee })
                     else:
                         for r in rooms:
-                            locations.append({ 'id': f"r-{r.id}", 'divisionName': default_division, 'block': b.name, 'floor': f.name, 'room': r.name })
+                            locations.append({ 'id': f"r-{r.id}", 'divisionName': default_division, 'block': b.name, 'floor': f.name, 'room': r.name, 'assignedTo': default_assignee })
                             
         return Response(locations)
 
