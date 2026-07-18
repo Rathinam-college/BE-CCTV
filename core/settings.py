@@ -68,12 +68,23 @@ use_sqlite = os.getenv('USE_SQLITE', 'False') == 'True'
 if not use_sqlite:
     db_host = os.getenv('DB_HOST', 'localhost')
     db_port = os.getenv('DB_PORT', '5432')
+    db_name = os.getenv('DB_NAME', 'cctv')
+    db_user = os.getenv('DB_USER', 'postgres')
+    db_pass = os.getenv('DB_PASSWORD', '9789474804')
     try:
-        # Quick TCP socket check to see if database host & port are reachable
-        with socket.create_connection((db_host, int(db_port)), timeout=1.0):
-            pass
-    except Exception:
-        print(f"WARNING: PostgreSQL database at {db_host}:{db_port} is unreachable. Falling back to SQLite.")
+        import psycopg2
+        # Try a real connection to make sure Postgres is active and accepting queries
+        conn = psycopg2.connect(
+            dbname=db_name,
+            user=db_user,
+            password=db_pass,
+            host=db_host,
+            port=db_port,
+            connect_timeout=2
+        )
+        conn.close()
+    except Exception as e:
+        print(f"WARNING: PostgreSQL database connection failed ({e}). Falling back to SQLite.")
         use_sqlite = True
 
 if use_sqlite:

@@ -47,6 +47,7 @@ class Ticket(models.Model):
     projectId = models.ForeignKey(Project, on_delete=models.CASCADE, null=True, blank=True, related_name='tickets', db_column='projectId')
     cameraId = models.ForeignKey(Camera, on_delete=models.CASCADE, null=True, blank=True, db_column='cameraId')
     raisedBy = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='raised_tickets', db_column='raisedBy')
+    raisedByName = models.CharField(max_length=255, null=True, blank=True)
     assignedTo = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='assigned_tickets', db_column='assignedTo')
     assignedStaff = models.ManyToManyField(settings.AUTH_USER_MODEL, blank=True, related_name='tickets_assigned_as_staff')
     issueDescription = models.TextField()
