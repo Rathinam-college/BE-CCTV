@@ -8,7 +8,7 @@ class DateCleanupMixin:
             data = dict(data)
             
         for field_name, field in self.fields.items():
-            if isinstance(field, (serializers.DateField, serializers.DateTimeField)):
+            if isinstance(field, (serializers.DateField, serializers.DateTimeField, serializers.FileField, serializers.ImageField)):
                 if field_name in data and data[field_name] in ['', 'null', 'None']:
                     data[field_name] = None
         return super().to_internal_value(data)
@@ -96,6 +96,9 @@ class TicketSerializer(DateCleanupMixin, serializers.ModelSerializer):
     class Meta:
         model = Ticket
         fields = '__all__'
+        extra_kwargs = {
+            'raisedBy': {'required': False, 'allow_null': True}
+        }
 
     def validate_serviceImage(self, value):
         from .utils import compress_file

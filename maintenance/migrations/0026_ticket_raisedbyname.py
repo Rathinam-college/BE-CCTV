@@ -2,6 +2,20 @@
 
 from django.db import migrations, models
 
+def add_raisedbyname_if_not_exists(apps, schema_editor):
+    with schema_editor.connection.cursor() as cursor:
+        cursor.execute("""
+            SELECT count(*) 
+            FROM information_schema.columns 
+            WHERE table_name='maintenance_ticket' AND column_name='raisedByName';
+        """)
+        exists = cursor.fetchone()[0]
+        if not exists:
+            cursor.execute('ALTER TABLE "maintenance_ticket" ADD COLUMN "raisedByName" varchar(255) NULL;')
+
+def reverse_code(apps, schema_editor):
+    with schema_editor.connection.cursor() as cursor:
+        cursor.execute('ALTER TABLE "maintenance_ticket" DROP COLUMN IF EXISTS "raisedByName";')
 
 class Migration(migrations.Migration):
 
@@ -10,9 +24,17 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
-            model_name='ticket',
-            name='raisedByName',
-            field=models.CharField(blank=True, max_length=255, null=True),
-        ),
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunPython(add_raisedbyname_if_not_exists, reverse_code=reverse_code),
+            ],
+            state_operations=[
+                migrations.AddField(
+                    model_name='ticket',
+                    name='raisedByName',
+                    field=models.CharField(blank=True, max_length=255, null=True),
+                ),
+            ]
+        )
     ]
+
