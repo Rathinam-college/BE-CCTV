@@ -28,9 +28,13 @@ class CameraRelocationSerializer(serializers.ModelSerializer):
 
 class CameraRemarkSerializer(serializers.ModelSerializer):
     userName = serializers.CharField(source='user.name', read_only=True)
+    camera_name = serializers.CharField(source='camera.name', read_only=True)
+    camera_ip = serializers.CharField(source='camera.ipAddress', read_only=True)
+    camera_division = serializers.CharField(source='camera.divisionName', read_only=True)
+    camera_location = serializers.CharField(source='camera.siteName', read_only=True)
     class Meta:
         model = CameraRemark
-        fields = ['id', 'remark', 'device_status', 'date', 'time', 'userName', 'createdAt']
+        fields = ['id', 'camera', 'camera_name', 'camera_ip', 'camera_division', 'camera_location', 'remark', 'device_status', 'date', 'time', 'userName', 'createdAt']
 
 class CameraSerializer(DateCleanupMixin, serializers.ModelSerializer):
     _id = serializers.IntegerField(source='id', read_only=True)
