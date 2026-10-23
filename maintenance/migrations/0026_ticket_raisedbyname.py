@@ -3,19 +3,30 @@
 from django.db import migrations, models
 
 def add_raisedbyname_if_not_exists(apps, schema_editor):
+    vendor = schema_editor.connection.vendor
     with schema_editor.connection.cursor() as cursor:
-        cursor.execute("""
-            SELECT count(*) 
-            FROM information_schema.columns 
-            WHERE table_name='maintenance_ticket' AND column_name='raisedByName';
-        """)
-        exists = cursor.fetchone()[0]
-        if not exists:
-            cursor.execute('ALTER TABLE "maintenance_ticket" ADD COLUMN "raisedByName" varchar(255) NULL;')
+        if vendor == 'postgresql':
+            cursor.execute("""
+                SELECT count(*) 
+                FROM information_schema.columns 
+                WHERE table_name='maintenance_ticket' AND column_name='raisedByName';
+            """)
+            exists = cursor.fetchone()[0]
+            if not exists:
+                cursor.execute('ALTER TABLE "maintenance_ticket" ADD COLUMN "raisedByName" varchar(255) NULL;')
+        elif vendor == 'sqlite':
+            cursor.execute("PRAGMA table_info('maintenance_ticket');")
+            columns = [row[1] for row in cursor.fetchall()]
+            if 'raisedByName' not in columns:
+                cursor.execute('ALTER TABLE "maintenance_ticket" ADD COLUMN "raisedByName" varchar(255) NULL;')
 
 def reverse_code(apps, schema_editor):
+    vendor = schema_editor.connection.vendor
     with schema_editor.connection.cursor() as cursor:
-        cursor.execute('ALTER TABLE "maintenance_ticket" DROP COLUMN IF EXISTS "raisedByName";')
+        if vendor == 'postgresql':
+            cursor.execute('ALTER TABLE "maintenance_ticket" DROP COLUMN IF EXISTS "raisedByName";')
+        elif vendor == 'sqlite':
+            pass
 
 class Migration(migrations.Migration):
 

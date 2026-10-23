@@ -33,21 +33,28 @@ import openpyxl
 import io
 
 def log_activity(user, action, page, details='', request=None):
-    ip = ''
-    if request:
-        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-        if x_forwarded_for:
-            ip = x_forwarded_for.split(',')[0]
-        else:
-            ip = request.META.get('REMOTE_ADDR')
-    
-    ActivityLog.objects.create(
-        user=user,
-        action=action,
-        page=page,
-        details=details,
-        ipAddress=ip
-    )
+    try:
+        if not user or not getattr(user, 'is_authenticated', False):
+            return None
+
+        ip = ''
+        if request:
+            x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+            if x_forwarded_for:
+                ip = x_forwarded_for.split(',')[0].strip()
+            else:
+                ip = request.META.get('REMOTE_ADDR', '')
+        
+        return ActivityLog.objects.create(
+            user=user,
+            action=action,
+            page=page,
+            details=details,
+            ipAddress=ip
+        )
+    except Exception as e:
+        print(f"Warning: Failed to log activity for {user}: {e}")
+        return None
 
 class DatabaseBackupView(APIView):
     permission_classes = [IsAuthenticated]
@@ -641,9 +648,14 @@ class NVRViewSet(viewsets.ModelViewSet):
     def add_remark(self, request, pk=None):
         nvr = self.get_object()
         remark_text = request.data.get('remark')
+        device_status = request.data.get('device_status') or request.data.get('status') or nvr.status
         if not remark_text:
             return Response({'message': 'Remark is required'}, status=status.HTTP_400_BAD_REQUEST)
         
+        if device_status and device_status != nvr.status:
+            nvr.status = device_status
+            nvr.save(update_fields=['status'])
+
         remark = NVRRemark.objects.create(
             nvr=nvr,
             remark=remark_text,
@@ -653,6 +665,12 @@ class NVRViewSet(viewsets.ModelViewSet):
         
         log_activity(request.user, 'REMARK', 'NVR', f"Added remark to NVR: {nvr.nvrName}", request)
         return Response(NVRRemarkSerializer(remark).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['get'])
+    def all_remarks(self, request):
+        remarks = NVRRemark.objects.select_related('nvr', 'user').all().order_by('-id')
+        serializer = NVRRemarkSerializer(remarks, many=True)
+        return Response(serializer.data)
 
     @action(detail=True, methods=['post'])
     def add_relocation(self, request, pk=None):
@@ -669,17 +687,19 @@ class NVRViewSet(viewsets.ModelViewSet):
             
         instance = self.get_object()
         old_status = instance.status
+        user_remark = request.data.get('remark')
         
         response = super().update(request, *args, **kwargs)
         
         if response.status_code == status.HTTP_200_OK:
             instance.refresh_from_db()
             new_status = instance.status
-            if old_status != new_status:
-                log_activity(request.user, 'STATUS_CHANGE', 'NVR', f"Status changed from {old_status} to {new_status} for NVR: {instance.nvrName}", request)
+            if old_status != new_status or user_remark:
+                log_activity(request.user, 'STATUS_CHANGE', 'NVR', f"Status change/remark for NVR: {instance.nvrName}", request)
+                remark_text = user_remark if user_remark else f"Status changed from {old_status} to {new_status}"
                 NVRRemark.objects.create(
                     nvr=instance,
-                    remark=f"System: Status changed from {old_status} to {new_status}",
+                    remark=remark_text,
                     device_status=new_status,
                     user=request.user
                 )

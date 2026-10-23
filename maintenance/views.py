@@ -3,6 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from django.core.mail import send_mail
 from django.conf import settings
+from django.db.models import F
 import threading
 from .models import Ticket, Project, TicketRemark, ProjectDocument, TicketDocument, GeneralBillingInfo, GeneralBillingDocument, TicketBillingRecord, ProjectBillingRecord
 from .serializers import TicketSerializer, ProjectSerializer, TicketRemarkSerializer, ProjectDocumentSerializer, TicketDocumentSerializer, GeneralBillingInfoSerializer, GeneralBillingDocumentSerializer, TicketBillingRecordSerializer, ProjectBillingRecordSerializer
@@ -184,7 +185,7 @@ class TicketViewSet(viewsets.ModelViewSet):
                         cursor.execute(stmt)
                 except Exception as e:
                     connection.rollback()
-        return Ticket.objects.all().order_by('-createdAt', '-id')
+        return Ticket.objects.all().order_by(F('operationDate').desc(nulls_last=True), F('receivedDate').desc(nulls_last=True), F('createdAt').desc(nulls_last=True), '-id')
 
     def list(self, request, *args, **kwargs):
         try:
