@@ -13,6 +13,12 @@ class UserSerializer(serializers.ModelSerializer):
         
     def create(self, validated_data):
         password = validated_data.pop('password', None)
+        role = validated_data.get('role', 'Staff')
+        permissions = validated_data.get('permissions', [])
+        if role == 'Staff' and not permissions:
+            validated_data['permissions'] = ['Dashboard:VIEW', 'Assets:VIEW', 'Maintenance:VIEW', 'Projects:VIEW']
+        elif role == 'Admin' and not permissions:
+            validated_data['permissions'] = ['Dashboard:VIEW', 'Assets:VIEW', 'Maintenance:VIEW', 'Projects:VIEW', 'Maintenance:EDIT', 'Projects:EDIT']
         user = super().create(validated_data)
         if password:
             user.set_password(password)

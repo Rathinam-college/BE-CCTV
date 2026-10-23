@@ -23,6 +23,7 @@ router.register(r'locations', LocationViewSet, basename='location')
 router.register(r'global-site-config', GlobalSiteConfigViewSet, basename='globalsiteconfig')
 router.register(r'divisions', DivisionViewSet, basename='division')
 router.register(r'brands', BrandViewSet, basename='brand')
+router.register(r'remarks', CameraRemarkViewSet, basename='cameraremark')
 
 router.register(r'', CameraViewSet, basename='camera')
 

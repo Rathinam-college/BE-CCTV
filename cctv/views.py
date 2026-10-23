@@ -52,6 +52,11 @@ def log_activity(user, action, page, details='', request=None):
 class DatabaseBackupView(APIView):
     permission_classes = [IsAuthenticated]
 
+    def perform_content_negotiation(self, request, force=False):
+        # Bypass default content negotiation to prevent format=sql from raising a 404
+        renderers = self.get_renderers()
+        return (renderers[0], renderers[0].media_type)
+
     def get(self, request):
         if request.user.role != 'Super Admin':
             return Response({'error': 'Unauthorized'}, status=403)
@@ -138,7 +143,7 @@ class DatabaseBackupView(APIView):
         if models_to_dump:
             args = models_to_dump.split(',')
         else:
-            args = ['cctv.camera', 'cctv.nvr', 'cctv.biometric', 'cctv.networkswitch', 'cctv.rack', 'maintenance.ticket', 'maintenance.project', 'users.user', 'cctv.activitylog', 'cctv.masterlocation', 'cctv.block', 'cctv.floor', 'cctv.room']
+            args = ['cctv.camera', 'cctv.nvr', 'cctv.biometric', 'cctv.networkswitch', 'cctv.rack', 'maintenance.ticket', 'maintenance.project', 'users.user', 'cctv.activitylog', 'cctv.block', 'cctv.floor', 'cctv.room', 'cctv.division', 'cctv.brand', 'maintenance.generalbillinginfo']
             
         try:
             objects_to_serialize = []
@@ -264,6 +269,24 @@ class DatabaseBackupView(APIView):
                 try:
                     result = subprocess.run(cmd, env=env, capture_output=True, text=True)
                     os.unlink(tmp_path)
+                    
+                    # Log execution details to console
+                    print("=== SQL RESTORE STDOUT ===")
+                    print(result.stdout[:2000])
+                    print("=== SQL RESTORE STDERR ===")
+                    print(result.stderr[:2000])
+                    print("==========================")
+                    
+                    # Log execution details to error_log.txt
+                    try:
+                        with open("error_log.txt", "w") as f:
+                            f.write("=== STDOUT ===\n")
+                            f.write(result.stdout)
+                            f.write("\n=== STDERR ===\n")
+                            f.write(result.stderr)
+                    except Exception as log_err:
+                        print(f"Failed to write error_log.txt: {log_err}")
+                        
                     if result.returncode != 0:
                         return Response({'error': f"SQL Error: {result.stderr}"}, status=400)
                     return Response({'status': 'SQL data imported successfully!'})

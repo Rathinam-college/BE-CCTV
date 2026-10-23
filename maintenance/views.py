@@ -196,12 +196,28 @@ class TicketViewSet(viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         if not check_can_edit(request.user, 'Maintenance'):
             return Response({'message': 'Not authorized'}, status=status.HTTP_403_FORBIDDEN)
-        response = super().create(request, *args, **kwargs)
-        category = request.data.get('category')
-        page_name = 'Upgrades' if category == 'Upgrade' else 'Maintenance'
-        action_name = 'upgrade' if category == 'Upgrade' else 'ticket'
-        log_activity(request.user, 'CREATE', page_name, f"Raised {action_name}: {request.data.get('issueDescription')}", request)
-        return response
+        try:
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            self.perform_create(serializer)
+            headers = self.get_success_headers(serializer.data)
+            category = request.data.get('category')
+            page_name = 'Upgrades' if category == 'Upgrade' else 'Maintenance'
+            action_name = 'upgrade' if category == 'Upgrade' else 'ticket'
+            log_activity(request.user, 'CREATE', page_name, f"Raised {action_name}: {request.data.get('issueDescription')}", request)
+            return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+        except Exception as e:
+            if hasattr(e, 'detail'):
+                print("TICKET CREATE VALIDATION ERROR:", e.detail)
+            else:
+                print("TICKET CREATE ERROR:", str(e))
+            raise e
+
+    def perform_create(self, serializer):
+        if 'raisedBy' not in serializer.validated_data or serializer.validated_data['raisedBy'] is None:
+            serializer.save(raisedBy=self.request.user)
+        else:
+            serializer.save()
 
     def perform_update(self, serializer):
         instance = serializer.save()
