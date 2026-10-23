@@ -52,9 +52,16 @@ class NVRRelocationSerializer(serializers.ModelSerializer):
 
 class NVRRemarkSerializer(serializers.ModelSerializer):
     userName = serializers.CharField(source='user.name', read_only=True)
+    nvr_name = serializers.CharField(source='nvr.nvrName', read_only=True)
+    nvr_serial = serializers.CharField(source='nvr.serialNumber', read_only=True)
+    nvr_ip = serializers.CharField(source='nvr.ipAddress', read_only=True)
+    nvr_division = serializers.CharField(source='nvr.divisionName', read_only=True)
+    nvr_block = serializers.CharField(source='nvr.block', read_only=True)
+    nvr_floor = serializers.CharField(source='nvr.floor', read_only=True)
+    nvr_room = serializers.CharField(source='nvr.room', read_only=True)
     class Meta:
         model = NVRRemark
-        fields = ['id', 'remark', 'device_status', 'date', 'time', 'userName', 'createdAt']
+        fields = ['id', 'nvr', 'nvr_name', 'nvr_serial', 'nvr_ip', 'nvr_division', 'nvr_block', 'nvr_floor', 'nvr_room', 'remark', 'device_status', 'date', 'time', 'userName', 'createdAt']
 
 class NVRSerializer(DateCleanupMixin, serializers.ModelSerializer):
     _id = serializers.IntegerField(source='id', read_only=True)
